@@ -5,6 +5,13 @@ from __future__ import annotations
 import os
 import ssl
 from dataclasses import dataclass, field
+from pathlib import Path
+
+_SYSTEM_CA_PATHS = (
+    "/etc/pki/tls/certs/ca-bundle.crt",
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+)
 
 
 def _env_bool(key: str, default: bool = True) -> bool:
@@ -12,6 +19,14 @@ def _env_bool(key: str, default: bool = True) -> bool:
     if not val:
         return default
     return val in ("true", "1", "yes")
+
+
+def _find_system_ca() -> str | None:
+    """Return the first system CA bundle path that exists, or None."""
+    for candidate in _SYSTEM_CA_PATHS:
+        if Path(candidate).is_file():
+            return candidate
+    return None
 
 
 @dataclass(frozen=True)
@@ -42,19 +57,21 @@ class BeakerConfig:
         )
 
     def make_ssl_context(self) -> ssl.SSLContext | None:
-        """Build an SSL context from configuration.
+        """Build an SSL context usable by both XML-RPC and httpx.
 
-        Returns None when SSL verification is enabled with default certs
-        (httpx/xmlrpc handle this natively).
+        When verification is disabled, returns a permissive context.
+        When enabled, looks for an explicit CA cert, then falls back to
+        well-known system CA bundle paths.  Returns None only when no
+        custom CA is needed and the platform defaults should suffice.
         """
         if not self.ssl_verify:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             return ctx
-        if self.ca_cert:
-            ctx = ssl.create_default_context(cafile=self.ca_cert)
-            return ctx
+        ca_file = self.ca_cert or _find_system_ca()
+        if ca_file:
+            return ssl.create_default_context(cafile=ca_file)
         return None
 
     @property

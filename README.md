@@ -14,34 +14,54 @@ Works with any Beaker server instance. Built on [FastMCP v3](https://gofastmcp.c
 - **2 workflow prompts** for common tasks (reserve system, diagnose job)
 - **Generic**: works with any Beaker URL, configurable SSL/CA settings
 
-## Quick Start
-
-### From PyPI (when published)
+## Installation
 
 ```bash
+# Using uv (recommended)
+pip install uv
 uvx mcp-beaker
-```
 
-### Local development
+# Using pip
+pip install mcp-beaker
+mcp-beaker
 
-```bash
+# Local development
 uv run --directory /path/to/mcp-beaker mcp-beaker
 ```
 
-### MCP configuration
+## Configuration
 
-Add to your `.cursor/mcp.json` (or equivalent):
+### Cursor / VS Code
+
+Add to your `.cursor/mcp.json` (or `.vscode/mcp.json`):
 
 ```json
 {
   "mcpServers": {
     "beaker": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/mcp-beaker", "mcp-beaker"],
+      "command": "uvx",
+      "args": ["mcp-beaker"],
       "env": {
         "BEAKER_URL": "https://beaker.example.com",
         "BEAKER_AUTH_METHOD": "kerberos"
       }
+    }
+  }
+}
+```
+
+### Streamable HTTP mode
+
+```bash
+uvx mcp-beaker --transport streamable-http --port 8000
+```
+
+```json
+{
+  "mcpServers": {
+    "beaker": {
+      "url": "http://localhost:8000/mcp",
+      "type": "streamableHttp"
     }
   }
 }
@@ -141,12 +161,14 @@ src/mcp_beaker/
   client.py             # BeakerClient (XML-RPC + REST)
   models/               # Pydantic response models
   servers/
-    main.py             # FastMCP server with lifespan
-    tools.py            # All 23 tool registrations
+    __init__.py         # FastMCP server, lifespan, DI helper
+    systems.py          # System tools (4 read + 4 write)
+    jobs.py             # Job tools (4 read + 6 write)
+    distros.py          # Distro tools (2 read)
+    tasks.py            # Task tools (1 read)
+    general.py          # General tools (2 read)
     prompts.py          # Workflow prompt templates
     resources.py        # Beaker documentation resources
-    dependencies.py     # DI: get_beaker_client(ctx)
-    context.py          # BeakerAppContext
   utils/
     xml_validation.py   # Job XML validation/auto-fill
     diagnosis.py        # Failure analysis engine

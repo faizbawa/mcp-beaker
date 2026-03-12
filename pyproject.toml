@@ -5,6 +5,17 @@ description = "MCP server for Beaker lab automation — system provisioning, job
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
+keywords = ["mcp", "beaker", "testing", "lab-automation", "ai", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "fastmcp>=3.0.0,<4",
     "httpx>=0.28.0",
@@ -13,6 +24,14 @@ dependencies = [
     "uvicorn>=0.27.1",
     "python-dotenv>=1.0.1",
 ]
+
+[[project.authors]]
+name = "faizbawa"
+
+[project.urls]
+Homepage = "https://github.com/faizbawa/mcp-beaker"
+Repository = "https://github.com/faizbawa/mcp-beaker"
+Issues = "https://github.com/faizbawa/mcp-beaker/issues"
 
 [project.scripts]
 mcp-beaker = "mcp_beaker:main"
@@ -59,6 +78,7 @@ fixable = ["ALL"]
 "tests/**/*.py" = ["S", "ANN"]
 "src/mcp_beaker/__init__.py" = ["E402", "S104"]
 "src/mcp_beaker/utils/bkr_cli.py" = ["S603", "S607"]
+"src/mcp_beaker/client.py" = ["S603", "S607"]
 "src/mcp_beaker/utils/xml_validation.py" = ["S314"]
 "src/mcp_beaker/utils/diagnosis.py" = ["S314"]
 "src/mcp_beaker/servers/systems.py" = ["S314"]

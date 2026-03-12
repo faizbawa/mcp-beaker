@@ -22,6 +22,7 @@ from mcp_beaker.exceptions import (
     BeakerNotFoundError,
     BeakerXMLRPCError,
 )
+from mcp_beaker.utils import bkr_cli
 
 logger = logging.getLogger("mcp-beaker")
 
@@ -138,6 +139,16 @@ class BeakerClient:
 
     # -- REST / HTTP --------------------------------------------------------
 
+    def _get_verify(self) -> bool | ssl.SSLContext:
+        """Build the SSL verification parameter for httpx.
+
+        Re-uses the same SSL context that the XML-RPC transport uses.
+        Falls back to ``ssl_verify`` bool when no custom context exists.
+        """
+        if self._ssl_context is not None:
+            return self._ssl_context
+        return self.config.ssl_verify
+
     async def rest_get(
         self,
         path: str,
@@ -148,12 +159,15 @@ class BeakerClient:
     ) -> httpx.Response:
         """Make an authenticated GET request to the Beaker REST API."""
         url = f"{self.config.url}{path}"
-        verify: bool | ssl.SSLContext = (
-            self._ssl_context if self._ssl_context is not None else self.config.ssl_verify
-        )
-        async with httpx.AsyncClient(verify=verify) as client:
+        verify = self._get_verify()
+        async with httpx.AsyncClient(verify=verify, follow_redirects=True) as client:
             try:
                 response = await client.get(url, headers=headers, params=params, timeout=timeout)
+                if response.url and "login" in str(response.url):
+                    raise BeakerAuthenticationError(
+                        f"Beaker redirected to login for {path}. "
+                        "This endpoint requires authentication."
+                    )
                 response.raise_for_status()
                 return response
             except httpx.HTTPStatusError as exc:
@@ -190,11 +204,20 @@ class BeakerClient:
         response = await self.rest_get(path, **kwargs)
         return response.text
 
-    # -- Convenience wrappers for specific API calls -----------------------
+    @property
+    def _use_bkr(self) -> bool:
+        """True when Kerberos auth is configured and bkr CLI is available."""
+        return self.config.auth_method == "kerberos" and bkr_cli.is_bkr_available()
+
+    # -- Convenience wrappers -----------------------------------------------
+    # Authenticated operations are routed through ``bkr`` CLI when using
+    # Kerberos, matching how the beaker-ai project handles auth.  Password
+    # auth goes through XML-RPC with cookie-based sessions.
 
     async def whoami(self) -> dict[str, Any]:
-        await asyncio.to_thread(self._ensure_password_auth)
-        return await self.call_xmlrpc("auth.who_am_i")
+        if self._use_bkr:
+            return await bkr_cli.bkr_whoami()
+        return await self.call_xmlrpc_authenticated("auth.who_am_i")
 
     async def lab_controllers(self) -> list[str]:
         return await self.call_xmlrpc("lab_controllers")
@@ -203,10 +226,17 @@ class BeakerClient:
         return await self.call_xmlrpc("jobs.filter", filters)
 
     async def jobs_upload(self, job_xml: str) -> str:
+        if self._use_bkr:
+            return await bkr_cli.bkr_job_submit(job_xml)
         return await self.call_xmlrpc_authenticated("jobs.upload", job_xml)
 
     async def jobs_set_response(self, taskid: str, response: str) -> Any:
-        return await self.call_xmlrpc_authenticated("jobs.set_response", taskid, response)
+        if self._use_bkr:
+            await bkr_cli.bkr_job_set_response(taskid, response)
+            return None
+        return await self.call_xmlrpc_authenticated(
+            "jobs.set_response", taskid, response,
+        )
 
     async def taskactions_task_info(self, taskid: str) -> dict[str, Any]:
         return await self.call_xmlrpc("taskactions.task_info", taskid)
@@ -217,22 +247,42 @@ class BeakerClient:
         clone: bool = False,
         include_logs: bool = True,
     ) -> str:
-        return await self.call_xmlrpc("taskactions.to_xml", taskid, clone, True, include_logs)
+        return await self.call_xmlrpc(
+            "taskactions.to_xml", taskid, clone, True, include_logs,
+        )
 
     async def taskactions_files(self, taskid: str) -> list[dict[str, Any]]:
         return await self.call_xmlrpc("taskactions.files", taskid)
 
     async def taskactions_stop(self, taskid: str, msg: str) -> Any:
-        return await self.call_xmlrpc_authenticated("taskactions.stop", taskid, "cancel", msg)
+        if self._use_bkr:
+            await bkr_cli.bkr_job_cancel(taskid, msg)
+            return None
+        return await self.call_xmlrpc_authenticated(
+            "taskactions.stop", taskid, "cancel", msg,
+        )
 
     async def systems_reserve(self, fqdn: str) -> Any:
+        if self._use_bkr:
+            await bkr_cli.bkr_system_reserve(fqdn)
+            return None
         return await self.call_xmlrpc_authenticated("systems.reserve", fqdn)
 
     async def systems_release(self, fqdn: str) -> Any:
+        if self._use_bkr:
+            await bkr_cli.bkr_system_release(fqdn)
+            return None
         return await self.call_xmlrpc_authenticated("systems.release", fqdn)
 
-    async def systems_power(self, action: str, fqdn: str, force: bool = False) -> Any:
-        return await self.call_xmlrpc_authenticated("systems.power", action, fqdn, False, force)
+    async def systems_power(
+        self, action: str, fqdn: str, force: bool = False,
+    ) -> Any:
+        if self._use_bkr:
+            await bkr_cli.bkr_system_power(fqdn, action, force=force)
+            return None
+        return await self.call_xmlrpc_authenticated(
+            "systems.power", action, fqdn, False, force,
+        )
 
     async def systems_provision(
         self,
@@ -244,6 +294,17 @@ class BeakerClient:
         kickstart: str = "",
         reboot: bool = True,
     ) -> Any:
+        if self._use_bkr:
+            await bkr_cli.bkr_system_provision(
+                fqdn,
+                distro_tree_id,
+                ks_meta=ks_meta,
+                kernel_options=kernel_options,
+                kernel_options_post=kernel_options_post,
+                kickstart=kickstart,
+                reboot=reboot,
+            )
+            return None
         return await self.call_xmlrpc_authenticated(
             "systems.provision",
             fqdn,
@@ -255,30 +316,43 @@ class BeakerClient:
             reboot,
         )
 
-    async def systems_history(self, fqdn: str, since: str | None = None) -> list[dict[str, Any]]:
+    async def systems_history(
+        self, fqdn: str, since: str | None = None,
+    ) -> list[dict[str, Any]]:
         args: list[Any] = [fqdn]
         if since is not None:
             args.append(since)
         return await self.call_xmlrpc("systems.history", *args)
 
     async def systems_get_osmajor_arches(
-        self, fqdn: str, tags: list[str] | None = None
+        self, fqdn: str, tags: list[str] | None = None,
     ) -> dict[str, list[str]]:
         args: list[Any] = [fqdn]
         if tags is not None:
             args.append(tags)
         return await self.call_xmlrpc("systems.get_osmajor_arches", *args)
 
-    async def distrotrees_filter(self, filters: dict[str, Any]) -> list[dict[str, Any]]:
+    async def distrotrees_filter(
+        self, filters: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         return await self.call_xmlrpc("distrotrees.filter", filters)
 
-    async def distros_get_osmajors(self, tags: list[str] | None = None) -> list[str]:
+    async def distros_get_osmajors(
+        self, tags: list[str] | None = None,
+    ) -> list[str]:
         if tags is not None:
             return await self.call_xmlrpc("distros.get_osmajors", tags)
         return await self.call_xmlrpc("distros.get_osmajors")
 
-    async def tasks_filter(self, filters: dict[str, Any]) -> list[dict[str, Any]]:
+    async def tasks_filter(
+        self, filters: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         return await self.call_xmlrpc("tasks.filter", filters)
 
     async def recipes_tasks_extend(self, task_id: int, kill_time: int) -> Any:
-        return await self.call_xmlrpc_authenticated("recipes.tasks.extend", task_id, kill_time)
+        if self._use_bkr:
+            await bkr_cli.bkr_watchdog_extend(f"T:{task_id}", kill_time)
+            return None
+        return await self.call_xmlrpc_authenticated(
+            "recipes.tasks.extend", task_id, kill_time,
+        )
