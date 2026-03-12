@@ -27,20 +27,20 @@ class SystemInfo(BaseModel):
     system_type: str = Field("", alias="type")
     owner: SystemOwner | None = None
     user: SystemOwner | None = None
-    lender: str = ""
-    location: str = ""
-    vendor: str = ""
-    model: str = ""
-    serial_number: str = ""
-    mac_address: str = ""
+    lender: str | None = ""
+    location: str | None = ""
+    vendor: str | None = ""
+    model: str | None = ""
+    serial_number: str | None = ""
+    mac_address: str | None = ""
     memory: int | None = None
     numa_nodes: int | None = None
-    hypervisor: str = ""
-    kernel_type: str = ""
-    power_type: str = ""
-    power_address: str = ""
+    hypervisor: str | None = ""
+    kernel_type: str | None = ""
+    power_type: str | None = ""
+    power_address: str | None = ""
     lab_controller_id: int | None = None
-    release_action: str = ""
+    release_action: str | None = ""
     arches: list[str] = Field(default_factory=list)
     lab_controller: dict[str, Any] | None = None
 
@@ -51,9 +51,9 @@ class SystemHistoryEntry(BaseModel):
     """A single activity entry from system history."""
 
     created: str = ""
-    user: str = ""
+    user: str | None = ""
     service: str = ""
     action: str = ""
     field_name: str = ""
-    old_value: str = ""
-    new_value: str = ""
+    old_value: str | None = ""
+    new_value: str | None = ""

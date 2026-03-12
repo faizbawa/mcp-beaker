@@ -108,11 +108,18 @@ async def list_jobs(
         try:
             data = await client.rest_get_json(f"/jobs/{nid}")
             return JobInfo.model_validate(data)
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed to fetch job %d details via REST: %s", nid, exc)
             return None
 
-    results = await asyncio.gather(*(_fetch(nid) for nid in numeric_ids))
-    jobs = [r for r in results if r is not None]
+    jobs: list[JobInfo] = []
+    for nid in numeric_ids:
+        job = await _fetch(nid)
+        if job is not None:
+            jobs.append(job)
+
+    if not jobs and job_ids:
+        return format_job_ids(job_ids, resolved_owner)
     return format_job_details(jobs, resolved_owner)
 
 

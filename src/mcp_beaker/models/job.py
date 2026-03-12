@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 class TaskResult(BaseModel):
     """A single task within a recipe."""
 
+    model_config = {"coerce_numbers_to_str": True}
+
     id: str = ""
     name: str = ""
     status: str = ""
@@ -26,13 +28,15 @@ class RecipeLog(BaseModel):
 class Recipe(BaseModel):
     """A recipe within a recipe set."""
 
+    model_config = {"coerce_numbers_to_str": True}
+
     id: str = ""
     status: str = ""
     result: str = ""
-    whiteboard: str = ""
+    whiteboard: str | None = ""
     distro_tree: dict[str, Any] = Field(default_factory=dict)
-    system: dict[str, Any] = Field(default_factory=dict)
-    status_reason: str = ""
+    system: dict[str, Any] | None = None
+    status_reason: str | None = ""
     tasks: list[TaskResult] = Field(default_factory=list)
     logs: list[RecipeLog] = Field(default_factory=list)
 
@@ -54,10 +58,12 @@ class Recipe(BaseModel):
 class RecipeSet(BaseModel):
     """A recipe set within a job."""
 
+    model_config = {"coerce_numbers_to_str": True}
+
     id: str = ""
     status: str = ""
     result: str = ""
-    priority: str = ""
+    priority: str | None = ""
     recipes: list[Recipe] = Field(default_factory=list)
 
 
@@ -68,12 +74,14 @@ class JobOwner(BaseModel):
 class JobInfo(BaseModel):
     """Detailed information about a Beaker job."""
 
+    model_config = {"coerce_numbers_to_str": True}
+
     id: str = ""
     status: str = ""
     result: str = ""
-    whiteboard: str = ""
+    whiteboard: str | None = ""
     is_finished: bool = False
-    submitted_time: str = ""
+    submitted_time: str | None = ""
     owner: JobOwner | dict[str, Any] | None = None
     recipesets: list[RecipeSet] = Field(default_factory=list)
 

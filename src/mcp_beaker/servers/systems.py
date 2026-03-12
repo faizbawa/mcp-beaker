@@ -145,7 +145,13 @@ async def get_system_history(
     try:
         since_arg = since if since else None
         entries_raw = await client.systems_history(fqdn, since_arg)
-        entries = [SystemHistoryEntry.model_validate(e) for e in entries_raw]
+        entries = [
+            SystemHistoryEntry.model_validate(
+                {k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v
+                 for k, v in e.items()}
+            )
+            for e in entries_raw
+        ]
         return format_system_history(entries, fqdn)
     except BeakerError as exc:
         return _error(str(exc))

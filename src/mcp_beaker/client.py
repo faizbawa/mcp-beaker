@@ -7,6 +7,7 @@ and password via XML-RPC), and SSL configuration.
 from __future__ import annotations
 
 import asyncio
+import http.client
 import logging
 import ssl
 import xmlrpc.client
@@ -82,10 +83,16 @@ class BeakerClient:
 
     # -- XML-RPC ------------------------------------------------------------
 
+    def _new_proxy(self) -> xmlrpc.client.ServerProxy:
+        """Create a fresh XML-RPC proxy (new TCP connection)."""
+        transport = CookieTransport(ssl_context=self._ssl_context)
+        proxy = xmlrpc.client.ServerProxy(self.config.rpc_url, transport=transport)
+        self._proxy = proxy
+        return proxy
+
     def _get_proxy(self) -> xmlrpc.client.ServerProxy:
         if self._proxy is None:
-            transport = CookieTransport(ssl_context=self._ssl_context)
-            self._proxy = xmlrpc.client.ServerProxy(self.config.rpc_url, transport=transport)
+            return self._new_proxy()
         return self._proxy
 
     def _ensure_password_auth(self) -> None:
@@ -110,23 +117,51 @@ class BeakerClient:
     async def call_xmlrpc(self, method: str, *args: Any) -> Any:
         """Call a Beaker XML-RPC method, handling auth and threading.
 
-        For unauthenticated calls (e.g. ``distrotrees.filter``), the proxy
-        is used directly.  For authenticated calls, ``_ensure_password_auth``
-        is invoked first when using password auth.
+        Automatically retries once with a fresh proxy if the connection
+        is stale (keep-alive timeout on the server side).
         """
         proxy = self._get_proxy()
 
-        def _call() -> Any:
-            obj: Any = proxy
+        def _call(p: xmlrpc.client.ServerProxy) -> Any:
+            obj: Any = p
             for part in method.split("."):
                 obj = getattr(obj, part)
             return obj(*args)
 
         try:
-            return await asyncio.to_thread(_call)
+            return await asyncio.to_thread(_call, proxy)
         except xmlrpc.client.Fault as exc:
             raise BeakerXMLRPCError(exc.faultCode, exc.faultString) from exc
-        except ConnectionError as exc:
+        except (ConnectionError, OSError, http.client.HTTPException) as exc:
+            logger.debug("XML-RPC connection failed (%s), retrying with fresh proxy", exc)
+            proxy = self._new_proxy()
+            if self._authenticated:
+                self._authenticated = False
+                self._ensure_password_auth()
+            try:
+                return await asyncio.to_thread(_call, proxy)
+            except xmlrpc.client.Fault as exc2:
+                raise BeakerXMLRPCError(exc2.faultCode, exc2.faultString) from exc2
+            except Exception as exc2:
+                raise BeakerConnectionError(
+                    f"Could not connect to Beaker at {self.config.url}: {exc2}"
+                ) from exc2
+        except Exception as exc:
+            err_msg = str(exc)
+            if err_msg in ("Idle", "Request-sent", "") or "RemoteDisconnected" in err_msg:
+                logger.debug("Stale XML-RPC connection (%s), retrying with fresh proxy", exc)
+                proxy = self._new_proxy()
+                if self._authenticated:
+                    self._authenticated = False
+                    self._ensure_password_auth()
+                try:
+                    return await asyncio.to_thread(_call, proxy)
+                except xmlrpc.client.Fault as exc2:
+                    raise BeakerXMLRPCError(exc2.faultCode, exc2.faultString) from exc2
+                except Exception as exc2:
+                    raise BeakerConnectionError(
+                        f"Could not connect to Beaker at {self.config.url}: {exc2}"
+                    ) from exc2
             raise BeakerConnectionError(
                 f"Could not connect to Beaker at {self.config.url}: {exc}"
             ) from exc
@@ -330,7 +365,7 @@ class BeakerClient:
         args: list[Any] = [fqdn]
         if tags is not None:
             args.append(tags)
-        return await self.call_xmlrpc("systems.get_osmajor_arches", *args)
+        return await self.call_xmlrpc_authenticated("systems.get_osmajor_arches", *args)
 
     async def distrotrees_filter(
         self, filters: dict[str, Any],
