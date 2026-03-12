@@ -1,5 +1,11 @@
 # mcp-beaker
 
+![PyPI Version](https://img.shields.io/pypi/v/mcp-beaker)
+[![PyPI Downloads](https://static.pepy.tech/badge/mcp-beaker)](https://pepy.tech/projects/mcp-beaker)
+[![CI](https://github.com/faizbawa/mcp-beaker/actions/workflows/ci.yml/badge.svg)](https://github.com/faizbawa/mcp-beaker/actions/workflows/ci.yml)
+![License](https://img.shields.io/github/license/faizbawa/mcp-beaker)
+![Python](https://img.shields.io/pypi/pyversions/mcp-beaker)
+
 MCP server for [Beaker](https://beaker-project.org/) lab automation -- system provisioning, job management, distro discovery, and failure diagnosis.
 
 Works with any Beaker server instance. Built on [FastMCP v3](https://gofastmcp.com/) and designed for use with AI coding assistants (Cursor, Claude Desktop, etc.).
@@ -188,4 +194,4 @@ uv run ruff check src/
 
 ## License
 
-Apache-2.0
+MIT

@@ -4,12 +4,12 @@ version = "0.1.1"
 description = "MCP server for Beaker lab automation — system provisioning, job management, distro discovery, and failure diagnosis"
 readme = "README.md"
 requires-python = ">=3.11"
-license = "Apache-2.0"
+license = "MIT"
 keywords = ["mcp", "beaker", "testing", "lab-automation", "ai", "llm"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
