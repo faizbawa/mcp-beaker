@@ -1,0 +1,83 @@
+[project]
+name = "mcp-beaker"
+version = "0.1.0"
+description = "MCP server for Beaker lab automation — system provisioning, job management, distro discovery, and failure diagnosis"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = [
+    "fastmcp>=3.0.0,<4",
+    "httpx>=0.28.0",
+    "pydantic>=2.10.0,<3.0",
+    "click>=8.1.7",
+    "uvicorn>=0.27.1",
+    "python-dotenv>=1.0.1",
+]
+
+[project.scripts]
+mcp-beaker = "mcp_beaker:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_beaker"]
+
+[tool.uv]
+package = true
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+indent-width = 4
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "W", "I", "N", "UP", "ANN", "S", "C4", "ICN", "EM"]
+ignore = [
+    "ANN401",
+    "EM101",
+    "EM102",
+    "S101",
+]
+fixable = ["ALL"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S", "ANN"]
+"src/mcp_beaker/__init__.py" = ["E402", "S104"]
+"src/mcp_beaker/utils/bkr_cli.py" = ["S603", "S607"]
+"src/mcp_beaker/utils/xml_validation.py" = ["S314"]
+"src/mcp_beaker/utils/diagnosis.py" = ["S314"]
+"src/mcp_beaker/servers/systems.py" = ["S314"]
+"src/mcp_beaker/servers/__init__.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
