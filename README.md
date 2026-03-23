@@ -22,7 +22,11 @@ Works with any Beaker server instance. Built on [FastMCP v3](https://gofastmcp.c
 
 ## Installation
 
-### Container (recommended)
+### Container
+
+> **Work in progress** -- cross-platform container support (password-based `kinit`
+> inside the container, no host volume mounts) is under active development.
+> Currently the image requires Fedora/RHEL-specific Kerberos mounts.
 
 The container image bundles `krb5-devel` and `gssapi` so there are no host
 dependencies beyond `podman` (or `docker`) and a valid Kerberos ticket.
@@ -59,7 +63,7 @@ uv run --directory /path/to/mcp-beaker mcp-beaker
 
 Add to your `.cursor/mcp.json` (or `.vscode/mcp.json`):
 
-#### Container (recommended)
+#### Container (Fedora/RHEL only -- cross-platform WIP)
 
 ```json
 {
