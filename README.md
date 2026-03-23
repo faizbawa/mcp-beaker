@@ -28,7 +28,10 @@ The container image bundles `krb5-devel` and `gssapi` so there are no host
 dependencies beyond `podman` (or `docker`) and a valid Kerberos ticket.
 
 ```bash
-# Build once from the repo root
+# Pull the pre-built image from GHCR
+podman pull ghcr.io/faizbawa/mcp-beaker:latest
+
+# Or build locally from the repo
 podman build -t mcp-beaker:latest -f Containerfile .
 ```
 
@@ -75,7 +78,7 @@ Add to your `.cursor/mcp.json` (or `.vscode/mcp.json`):
         "-e", "BEAKER_AUTH_METHOD=kerberos",
         "-e", "BEAKER_KERBEROS_BACKEND=http",
         "-e", "KRB5CCNAME=KCM:",
-        "mcp-beaker:latest"
+        "ghcr.io/faizbawa/mcp-beaker:latest"
       ]
     }
   }

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-03-23
+
+### Added
+- Pre-built container image on GHCR (`ghcr.io/faizbawa/mcp-beaker`)
+- GitHub Actions workflow to publish container image on every release
+- Multi-stage Containerfile to strip compiler toolchain from final image
+
 ## [0.2.0] - 2026-03-23
 
 ### Added
@@ -12,6 +19,8 @@ All notable changes to this project will be documented in this file.
 - Session cookie injection into REST API calls for authenticated endpoints
 - 17 new unit tests for auth strategies (SPNEGO, bkr routing, cookie injection)
 - `Containerfile` for building a batteries-included OCI image (`podman`/`docker`)
+- Pre-built container image published to `ghcr.io/faizbawa/mcp-beaker` on every release
+- Multi-stage build to strip compiler toolchain from final image
 - Container documentation with KCM Kerberos ticket forwarding via volume mounts
 
 ### Changed
