@@ -14,4 +14,13 @@ RUN microdnf install -y python3 krb5-workstation krb5-libs \
 
 COPY --from=builder /install /usr/local
 
-ENTRYPOINT ["mcp-beaker"]
+RUN printf '[libdefaults]\n\
+    dns_lookup_realm = true\n\
+    dns_lookup_kdc = true\n\
+    default_ccache_name = FILE:/tmp/krb5cc_0\n\
+    forwardable = true\n\
+    rdns = false\n' > /etc/krb5.conf
+
+COPY entrypoint.sh /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

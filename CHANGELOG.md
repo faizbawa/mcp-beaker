@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.3] - 2026-03-23
+
+### Added
+- Generic cross-platform container support -- zero volume mounts required
+- `entrypoint.sh` runs `kinit` inside the container from `KRB5_PRINCIPAL` and `KRB5_PASSWORD` env vars
+- Built-in DNS-discovery `krb5.conf` -- no host Kerberos config needed
+- Keytab support: mount a `.keytab` file to `/etc/krb5.keytab` for passwordless auth
+
+### Changed
+- Container config simplified from 6 volume mounts to zero
+- Updated README, example configs, and CHANGELOG for generic container usage
+
 ## [0.2.1] - 2026-03-23
 
 ### Added

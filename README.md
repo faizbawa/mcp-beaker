@@ -22,14 +22,11 @@ Works with any Beaker server instance. Built on [FastMCP v3](https://gofastmcp.c
 
 ## Installation
 
-### Container
+### Container (recommended)
 
-> **Work in progress** -- cross-platform container support (password-based `kinit`
-> inside the container, no host volume mounts) is under active development.
-> Currently the image requires Fedora/RHEL-specific Kerberos mounts.
-
-The container image bundles `krb5-devel` and `gssapi` so there are no host
-dependencies beyond `podman` (or `docker`) and a valid Kerberos ticket.
+The container image bundles everything -- no host dependencies beyond
+`podman` (or `docker`). Kerberos authentication happens inside the container
+via `KRB5_PRINCIPAL` and `KRB5_PASSWORD` environment variables.
 
 ```bash
 # Pull the pre-built image from GHCR
@@ -63,7 +60,7 @@ uv run --directory /path/to/mcp-beaker mcp-beaker
 
 Add to your `.cursor/mcp.json` (or `.vscode/mcp.json`):
 
-#### Container (Fedora/RHEL only -- cross-platform WIP)
+#### Container (recommended)
 
 ```json
 {
@@ -71,17 +68,10 @@ Add to your `.cursor/mcp.json` (or `.vscode/mcp.json`):
     "beaker": {
       "command": "podman",
       "args": [
-        "run", "--rm", "-i", "--pid=host",
-        "-v", "/run/.heim_org.h5l.kcm-socket:/run/.heim_org.h5l.kcm-socket",
-        "-v", "/etc/krb5.conf:/etc/krb5.conf:ro",
-        "-v", "/etc/krb5.conf.d:/etc/krb5.conf.d:ro",
-        "-v", "/etc/crypto-policies:/etc/crypto-policies:ro",
-        "-v", "/etc/pki:/etc/pki:ro",
-        "-v", "/var/lib/sss/pubconf/krb5.include.d:/var/lib/sss/pubconf/krb5.include.d:ro",
+        "run", "--rm", "-i", "--network=host",
         "-e", "BEAKER_URL=https://beaker.example.com",
-        "-e", "BEAKER_AUTH_METHOD=kerberos",
-        "-e", "BEAKER_KERBEROS_BACKEND=http",
-        "-e", "KRB5CCNAME=KCM:",
+        "-e", "KRB5_PRINCIPAL=your-user@YOUR.REALM",
+        "-e", "KRB5_PASSWORD=your-kerberos-password",
         "ghcr.io/faizbawa/mcp-beaker:latest"
       ]
     }
@@ -89,8 +79,9 @@ Add to your `.cursor/mcp.json` (or `.vscode/mcp.json`):
 }
 ```
 
-The volume mounts forward the host Kerberos ticket (KCM cache) and TLS
-certificates into the container. Run `kinit` on the host before starting.
+The container runs `kinit` internally -- no volume mounts, no host
+dependencies. Use `--network=host` so the container can reach your
+Kerberos KDC and Beaker server (especially over VPN).
 
 #### Pip / uvx
 
@@ -139,6 +130,8 @@ uvx mcp-beaker --transport streamable-http --port 8000
 | `BEAKER_OWNER` | No | `$USER` | Default owner for job queries |
 | `BEAKER_SSL_VERIFY` | No | `true` | Verify SSL certificates |
 | `BEAKER_CA_CERT` | No | -- | Path to CA certificate bundle |
+| `KRB5_PRINCIPAL` | Container only | -- | Kerberos principal for `kinit` inside container |
+| `KRB5_PASSWORD` | Container only | -- | Kerberos password for `kinit` inside container |
 
 ## CLI Options
 
