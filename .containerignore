@@ -9,3 +9,6 @@ dist
 build
 tests
 .venv
+.env
+.env.*
+*.env.local
