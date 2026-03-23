@@ -83,6 +83,28 @@ The container runs `kinit` internally -- no volume mounts, no host
 dependencies. Use `--network=host` so the container can reach your
 Kerberos KDC and Beaker server (especially over VPN).
 
+**SSL certificates:** Many Beaker servers use internal CA certificates that
+are not in the container's default trust store. You have three options:
+
+1. **Disable verification** (simplest, fine on a trusted corporate network):
+
+```json
+"-e", "BEAKER_SSL_VERIFY=false",
+```
+
+2. **Pass CA cert inline** via `BEAKER_CA_CERT_DATA` (no volume mount needed):
+
+```json
+"-e", "BEAKER_CA_CERT_DATA=-----BEGIN CERTIFICATE-----\nMIID...your-ca-cert...\n-----END CERTIFICATE-----",
+```
+
+3. **Mount a CA bundle** (single file):
+
+```json
+"-v", "/path/to/ca-bundle.crt:/tmp/ca-bundle.crt:ro",
+"-e", "BEAKER_CA_CERT=/tmp/ca-bundle.crt",
+```
+
 #### Pip / uvx
 
 ```json
@@ -132,6 +154,7 @@ uvx mcp-beaker --transport streamable-http --port 8000
 | `BEAKER_CA_CERT` | No | -- | Path to CA certificate bundle |
 | `KRB5_PRINCIPAL` | Container only | -- | Kerberos principal for `kinit` inside container |
 | `KRB5_PASSWORD` | Container only | -- | Kerberos password for `kinit` inside container |
+| `BEAKER_CA_CERT_DATA` | Container only | -- | PEM-encoded CA certificate written to file at startup |
 
 ## CLI Options
 
