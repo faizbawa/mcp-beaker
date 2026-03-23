@@ -1,17 +1,21 @@
 """Beaker API client wrapping XML-RPC and REST endpoints.
 
-Handles cookie-based session management, dual auth (Kerberos via bkr CLI
-and password via XML-RPC), and SSL configuration.
+Handles cookie-based session management and three auth strategies:
+  1. Password via XML-RPC ``auth.login_password()``
+  2. Kerberos via native GSSAPI/SPNEGO (``kerberos_backend="http"``, default)
+  3. Kerberos via ``bkr`` CLI subprocesses (``kerberos_backend="bkr"``)
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import http.client
 import logging
 import ssl
 import xmlrpc.client
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -24,6 +28,14 @@ from mcp_beaker.exceptions import (
     BeakerXMLRPCError,
 )
 from mcp_beaker.utils import bkr_cli
+
+try:
+    import gssapi
+
+    _HAS_GSSAPI = True
+except ImportError:
+    gssapi = None  # type: ignore[assignment]
+    _HAS_GSSAPI = False
 
 logger = logging.getLogger("mcp-beaker")
 
@@ -79,14 +91,18 @@ class BeakerClient:
         self.config = config
         self._ssl_context = config.make_ssl_context()
         self._proxy: xmlrpc.client.ServerProxy | None = None
+        self._cookie_transport: CookieTransport | None = None
         self._authenticated = False
+        self._session_cookie: str | None = None
 
     # -- XML-RPC ------------------------------------------------------------
 
     def _new_proxy(self) -> xmlrpc.client.ServerProxy:
         """Create a fresh XML-RPC proxy (new TCP connection)."""
-        transport = CookieTransport(ssl_context=self._ssl_context)
-        proxy = xmlrpc.client.ServerProxy(self.config.rpc_url, transport=transport)
+        self._cookie_transport = CookieTransport(ssl_context=self._ssl_context)
+        proxy = xmlrpc.client.ServerProxy(
+            self.config.rpc_url, transport=self._cookie_transport,
+        )
         self._proxy = proxy
         return proxy
 
@@ -114,6 +130,61 @@ class BeakerClient:
             ) from exc
         self._authenticated = True
 
+    def _ensure_spnego_auth(self) -> None:
+        """Authenticate via HTTP Negotiate/SPNEGO, storing the session cookie.
+
+        Requires the ``gssapi`` package and a valid Kerberos ticket (``kinit``).
+        The Beaker server returns a ``beaker_auth_token`` cookie on ``GET /login``
+        with a valid Negotiate header; that cookie is injected into the XML-RPC
+        transport so subsequent calls are authenticated.
+        """
+        if self._authenticated:
+            return
+        if not _HAS_GSSAPI:
+            raise BeakerAuthenticationError(
+                "Kerberos auth via SPNEGO requires the 'gssapi' package. "
+                "Install it with: pip install gssapi  "
+                "(or: pip install mcp-beaker[kerberos])"
+            )
+
+        host = urlparse(self.config.url).hostname
+        service_name = gssapi.Name(
+            f"HTTP@{host}",
+            name_type=gssapi.NameType.hostbased_service,
+        )
+        ctx = gssapi.SecurityContext(name=service_name, usage="initiate")
+        token = base64.b64encode(ctx.step()).decode("ascii")
+
+        verify = self._get_verify()
+        response = httpx.get(
+            f"{self.config.url}/login",
+            headers={"Authorization": f"Negotiate {token}"},
+            follow_redirects=True,
+            verify=verify,
+        )
+        cookie = response.cookies.get("beaker_auth_token")
+        if not cookie:
+            raise BeakerAuthenticationError(
+                "SPNEGO negotiation completed but Beaker did not return a session cookie. "
+                f"HTTP {response.status_code}: {response.text[:200]}"
+            )
+
+        self._get_proxy()
+        self._cookie_transport._cookies.append(f"beaker_auth_token={cookie}")
+        self._session_cookie = cookie
+        self._authenticated = True
+        logger.info("SPNEGO authentication successful for %s", host)
+
+    def _reauth(self) -> None:
+        """Re-authenticate using the configured method after a connection reset."""
+        if self.config.auth_method == "password":
+            self._ensure_password_auth()
+        elif (
+            self.config.auth_method == "kerberos"
+            and self.config.kerberos_backend == "http"
+        ):
+            self._ensure_spnego_auth()
+
     async def call_xmlrpc(self, method: str, *args: Any) -> Any:
         """Call a Beaker XML-RPC method, handling auth and threading.
 
@@ -137,7 +208,7 @@ class BeakerClient:
             proxy = self._new_proxy()
             if self._authenticated:
                 self._authenticated = False
-                self._ensure_password_auth()
+                self._reauth()
             try:
                 return await asyncio.to_thread(_call, proxy)
             except xmlrpc.client.Fault as exc2:
@@ -153,7 +224,7 @@ class BeakerClient:
                 proxy = self._new_proxy()
                 if self._authenticated:
                     self._authenticated = False
-                    self._ensure_password_auth()
+                    self._reauth()
                 try:
                     return await asyncio.to_thread(_call, proxy)
                 except xmlrpc.client.Fault as exc2:
@@ -167,9 +238,19 @@ class BeakerClient:
             ) from exc
 
     async def call_xmlrpc_authenticated(self, method: str, *args: Any) -> Any:
-        """Call an XML-RPC method that requires authentication."""
+        """Call an XML-RPC method that requires authentication.
+
+        Password auth uses XML-RPC ``login_password``.  Kerberos with
+        ``kerberos_backend="http"`` uses native SPNEGO; callers using the
+        ``bkr`` CLI path bypass this method entirely.
+        """
         if self.config.auth_method == "password":
             await asyncio.to_thread(self._ensure_password_auth)
+        elif (
+            self.config.auth_method == "kerberos"
+            and self.config.kerberos_backend == "http"
+        ):
+            await asyncio.to_thread(self._ensure_spnego_auth)
         return await self.call_xmlrpc(method, *args)
 
     # -- REST / HTTP --------------------------------------------------------
@@ -195,7 +276,13 @@ class BeakerClient:
         """Make an authenticated GET request to the Beaker REST API."""
         url = f"{self.config.url}{path}"
         verify = self._get_verify()
-        async with httpx.AsyncClient(verify=verify, follow_redirects=True) as client:
+        cookies: dict[str, str] = {}
+        session_cookie = getattr(self, "_session_cookie", None)
+        if session_cookie:
+            cookies["beaker_auth_token"] = session_cookie
+        async with httpx.AsyncClient(
+            verify=verify, follow_redirects=True, cookies=cookies,
+        ) as client:
             try:
                 response = await client.get(url, headers=headers, params=params, timeout=timeout)
                 if response.url and "login" in str(response.url):
@@ -241,8 +328,27 @@ class BeakerClient:
 
     @property
     def _use_bkr(self) -> bool:
-        """True when Kerberos auth is configured and bkr CLI is available."""
-        return self.config.auth_method == "kerberos" and bkr_cli.is_bkr_available()
+        """Whether to route authenticated calls through ``bkr`` CLI subprocesses.
+
+        Controlled by ``config.kerberos_backend``:
+          - ``"http"`` → native SPNEGO (requires ``gssapi``)
+          - ``"bkr"``  → ``bkr`` CLI subprocesses (requires ``bkr`` on PATH)
+        """
+        if self.config.auth_method != "kerberos":
+            return False
+        if self.config.kerberos_backend == "bkr":
+            if not bkr_cli.is_bkr_available():
+                raise BeakerAuthenticationError(
+                    "Kerberos backend 'bkr' selected but the 'bkr' CLI is not "
+                    "on PATH. Install it with: yum install beaker-client"
+                )
+            return True
+        if not _HAS_GSSAPI:
+            raise BeakerAuthenticationError(
+                "Kerberos backend 'http' selected but the 'gssapi' package is "
+                "not installed. Install it with: pip install mcp-beaker[kerberos]"
+            )
+        return False
 
     # -- Convenience wrappers -----------------------------------------------
     # Authenticated operations are routed through ``bkr`` CLI when using

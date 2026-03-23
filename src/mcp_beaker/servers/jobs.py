@@ -12,7 +12,6 @@ from pydantic import Field
 from mcp_beaker.exceptions import BeakerError, BeakerNotFoundError
 from mcp_beaker.models.job import JobInfo, LogFileEntry
 from mcp_beaker.servers import beaker_client, mcp
-from mcp_beaker.utils.bkr_cli import is_bkr_available, submit_job_via_bkr
 from mcp_beaker.utils.diagnosis import attempt_auto_fix, diagnose_job
 from mcp_beaker.utils.formatting import (
     FAILURE_RESULTS,
@@ -278,8 +277,8 @@ async def submit_job(
 
     submit_xml = filled_xml if auto_filled else job_xml
 
-    if is_bkr_available():
-        result = await _submit_via_bkr(client.config.url, submit_xml)
+    if client._use_bkr:
+        result = await _submit_via_bkr(client, submit_xml)
     else:
         result = await _submit_via_xmlrpc(client, submit_xml)
 
@@ -316,8 +315,8 @@ async def clone_job(
     except Exception as exc:
         return _error(f"Failed to fetch clone XML: {exc}")
 
-    if is_bkr_available():
-        return await _submit_via_bkr(client.config.url, xml_text)
+    if client._use_bkr:
+        return await _submit_via_bkr(client, xml_text)
     return await _submit_via_xmlrpc(client, xml_text)
 
 
@@ -437,8 +436,8 @@ async def watch_job(
         retries_used += 1
         full_report_parts.append(f"\n--- Auto-retry {retries_used}/{max_retries} ---")
 
-        if is_bkr_available():
-            submit_result = await _submit_via_bkr(client.config.url, corrected_xml)
+        if client._use_bkr:
+            submit_result = await _submit_via_bkr(client, corrected_xml)
         else:
             submit_result = await _submit_via_xmlrpc(client, corrected_xml)
 
@@ -522,10 +521,14 @@ async def set_job_response(
 # ---------------------------------------------------------------------------
 
 
-async def _submit_via_bkr(base_url: str, job_xml: str) -> str:
+async def _submit_via_bkr(client: Any, job_xml: str) -> str:
+    from mcp_beaker.utils.bkr_cli import bkr_job_submit
+
     try:
-        job_id = await submit_job_via_bkr(job_xml)
-        return format_submit_success(base_url, job_id, auth_method="Kerberos (bkr CLI)")
+        job_id = await bkr_job_submit(job_xml)
+        return format_submit_success(
+            client.config.url, job_id, auth_method="Kerberos (bkr CLI)",
+        )
     except RuntimeError as exc:
         return _error(str(exc))
     except Exception as exc:

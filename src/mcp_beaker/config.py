@@ -38,6 +38,7 @@ class BeakerConfig:
 
     url: str = ""
     auth_method: str = "kerberos"
+    kerberos_backend: str = "http"
     username: str = ""
     password: str = ""
     owner: str = ""
@@ -49,6 +50,7 @@ class BeakerConfig:
         return cls(
             url=os.environ.get("BEAKER_URL", "").rstrip("/"),
             auth_method=os.environ.get("BEAKER_AUTH_METHOD", "kerberos").lower(),
+            kerberos_backend=os.environ.get("BEAKER_KERBEROS_BACKEND", "http").lower(),
             username=os.environ.get("BEAKER_USERNAME", ""),
             password=os.environ.get("BEAKER_PASSWORD", ""),
             owner=os.environ.get("BEAKER_OWNER", "") or os.environ.get("USER", ""),

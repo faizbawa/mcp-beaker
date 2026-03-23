@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-03-23
+
+### Added
+- Native GSSAPI/SPNEGO Kerberos authentication -- no `bkr` CLI required
+- `BEAKER_KERBEROS_BACKEND` env var (`http` default, `bkr` fallback)
+- `--kerberos-backend` CLI option
+- `gssapi` as optional dependency (`pip install mcp-beaker[kerberos]`)
+- Session cookie injection into REST API calls for authenticated endpoints
+- 17 new unit tests for auth strategies (SPNEGO, bkr routing, cookie injection)
+- `Containerfile` for building a batteries-included OCI image (`podman`/`docker`)
+- Container documentation with KCM Kerberos ticket forwarding via volume mounts
+
+### Changed
+- `_use_bkr` routing now driven by `kerberos_backend` config instead of auto-detection
+- Job submission in `servers/jobs.py` uses `client._use_bkr` instead of standalone `is_bkr_available()`
+- XML-RPC connection retry re-authenticates using the correct backend
+
 ## [0.1.1] - 2026-03-12
 
 ### Added

@@ -113,6 +113,11 @@ import click
     type=click.Choice(["kerberos", "password"]),
     help="Authentication method",
 )
+@click.option(
+    "--kerberos-backend",
+    type=click.Choice(["http", "bkr"]),
+    help="Kerberos backend: http (native SPNEGO, default) or bkr (bkr CLI)",
+)
 @click.option("--read-only", is_flag=True, help="Disable all write tools")
 @click.option(
     "--enabled-tools",
@@ -129,6 +134,7 @@ def main(
     ssl_verify: bool,
     ca_cert: str | None,
     auth_method: str | None,
+    kerberos_backend: str | None,
     read_only: bool,
     enabled_tools: str | None,
 ) -> None:
@@ -174,6 +180,8 @@ def main(
         os.environ["BEAKER_CA_CERT"] = ca_cert
     if _was_provided("auth_method") and auth_method:
         os.environ["BEAKER_AUTH_METHOD"] = auth_method
+    if _was_provided("kerberos_backend") and kerberos_backend:
+        os.environ["BEAKER_KERBEROS_BACKEND"] = kerberos_backend
     if _was_provided("read_only"):
         os.environ["BEAKER_READ_ONLY"] = str(read_only).lower()
     if _was_provided("enabled_tools") and enabled_tools:

@@ -13,7 +13,7 @@ Works with any Beaker server instance. Built on [FastMCP v3](https://gofastmcp.c
 ## Features
 
 - **23 tools** covering the full Beaker lifecycle: systems, jobs, distros, tasks
-- **Dual auth**: Kerberos (via `bkr` CLI) and password (via XML-RPC)
+- **Flexible auth**: Kerberos (native GSSAPI/SPNEGO or `bkr` CLI fallback) and password (XML-RPC)
 - **Job XML validation**: auto-fills missing fields, infers distro families
 - **Failure diagnosis**: deep analysis with auto-retry on correctable failures
 - **10 documentation topics** exposed as MCP resources
@@ -21,6 +21,18 @@ Works with any Beaker server instance. Built on [FastMCP v3](https://gofastmcp.c
 - **Generic**: works with any Beaker URL, configurable SSL/CA settings
 
 ## Installation
+
+### Container (recommended)
+
+The container image bundles `krb5-devel` and `gssapi` so there are no host
+dependencies beyond `podman` (or `docker`) and a valid Kerberos ticket.
+
+```bash
+# Build once from the repo root
+podman build -t mcp-beaker:latest -f Containerfile .
+```
+
+### Pip / uvx
 
 ```bash
 # Using uv (recommended)
@@ -30,6 +42,9 @@ uvx mcp-beaker
 # Using pip
 pip install mcp-beaker
 mcp-beaker
+
+# With native Kerberos support (no bkr CLI needed -- requires krb5-devel on host)
+pip install mcp-beaker[kerberos]
 
 # Local development
 uv run --directory /path/to/mcp-beaker mcp-beaker
@@ -41,15 +56,47 @@ uv run --directory /path/to/mcp-beaker mcp-beaker
 
 Add to your `.cursor/mcp.json` (or `.vscode/mcp.json`):
 
+#### Container (recommended)
+
+```json
+{
+  "mcpServers": {
+    "beaker": {
+      "command": "podman",
+      "args": [
+        "run", "--rm", "-i", "--pid=host",
+        "-v", "/run/.heim_org.h5l.kcm-socket:/run/.heim_org.h5l.kcm-socket",
+        "-v", "/etc/krb5.conf:/etc/krb5.conf:ro",
+        "-v", "/etc/krb5.conf.d:/etc/krb5.conf.d:ro",
+        "-v", "/etc/crypto-policies:/etc/crypto-policies:ro",
+        "-v", "/etc/pki:/etc/pki:ro",
+        "-v", "/var/lib/sss/pubconf/krb5.include.d:/var/lib/sss/pubconf/krb5.include.d:ro",
+        "-e", "BEAKER_URL=https://beaker.example.com",
+        "-e", "BEAKER_AUTH_METHOD=kerberos",
+        "-e", "BEAKER_KERBEROS_BACKEND=http",
+        "-e", "KRB5CCNAME=KCM:",
+        "mcp-beaker:latest"
+      ]
+    }
+  }
+}
+```
+
+The volume mounts forward the host Kerberos ticket (KCM cache) and TLS
+certificates into the container. Run `kinit` on the host before starting.
+
+#### Pip / uvx
+
 ```json
 {
   "mcpServers": {
     "beaker": {
       "command": "uvx",
-      "args": ["mcp-beaker"],
+      "args": ["mcp-beaker[kerberos]"],
       "env": {
         "BEAKER_URL": "https://beaker.example.com",
-        "BEAKER_AUTH_METHOD": "kerberos"
+        "BEAKER_AUTH_METHOD": "kerberos",
+        "BEAKER_KERBEROS_BACKEND": "http"
       }
     }
   }
@@ -79,6 +126,7 @@ uvx mcp-beaker --transport streamable-http --port 8000
 |----------|----------|---------|-------------|
 | `BEAKER_URL` | Yes | -- | Base URL of your Beaker server |
 | `BEAKER_AUTH_METHOD` | No | `kerberos` | `kerberos` or `password` |
+| `BEAKER_KERBEROS_BACKEND` | No | `http` | `http` (native SPNEGO) or `bkr` (bkr CLI) |
 | `BEAKER_USERNAME` | For password auth | -- | Beaker username |
 | `BEAKER_PASSWORD` | For password auth | -- | Beaker password |
 | `BEAKER_OWNER` | No | `$USER` | Default owner for job queries |
@@ -99,6 +147,7 @@ Options:
   --ssl-verify / --no-ssl-verify           Verify SSL certs (default: verify)
   --ca-cert TEXT                           CA certificate bundle path
   --auth-method [kerberos|password]        Authentication method
+  --kerberos-backend [http|bkr]            Kerberos backend (default: http)
   --read-only                              Disable all write tools
   --enabled-tools TEXT                     Comma-separated tools to enable
   -v, --verbose                            Increase verbosity (-v info, -vv debug)
@@ -151,11 +200,18 @@ Ensure you have a valid ticket:
 kinit your-username@YOUR.REALM
 ```
 
-The server uses the `bkr` CLI for authenticated operations, which picks up the Kerberos ticket automatically.
+The server supports two Kerberos backends, controlled by `BEAKER_KERBEROS_BACKEND`:
+
+| Value | Backend | Install |
+|-------|---------|---------|
+| `http` (default) | **Native GSSAPI/SPNEGO** -- lightweight, pip-installable | `pip install mcp-beaker[kerberos]` |
+| `bkr` | **`bkr` CLI** subprocesses -- traditional, requires RPM | `yum install beaker-client` |
+
+Both backends use the same Kerberos ticket from `kinit`.
 
 ### Password
 
-Set `BEAKER_AUTH_METHOD=password` along with `BEAKER_USERNAME` and `BEAKER_PASSWORD`. The server authenticates via the XML-RPC `auth.login_password()` method.
+Set `BEAKER_AUTH_METHOD=password` along with `BEAKER_USERNAME` and `BEAKER_PASSWORD`. The server authenticates via the XML-RPC `auth.login_password()` method. Note: this requires server-side LDAP to be enabled.
 
 ## Architecture
 

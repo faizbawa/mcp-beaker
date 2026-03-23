@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+from mcp_beaker.config import BeakerConfig
 from mcp_beaker.exceptions import BeakerError, BeakerNotFoundError
 from mcp_beaker.servers.jobs import (
     cancel_job,
@@ -41,7 +42,6 @@ class TestListJobs:
         assert "No jobs found" in result
 
     async def test_no_owner(self, ctx, mock_client):
-        from mcp_beaker.config import BeakerConfig
         no_owner_cfg = BeakerConfig(
             url="https://beaker.test.example.com",
             auth_method="password",
@@ -202,15 +202,21 @@ class TestSubmitJob:
         result = await submit_job(ctx, job_xml="<job></job>")
         assert "structural errors" in result.lower() or "Error" in result
 
-    @patch("mcp_beaker.servers.jobs.is_bkr_available", return_value=False)
-    async def test_xmlrpc_submit(self, mock_bkr, ctx, mock_client):
+    async def test_xmlrpc_submit(self, ctx, mock_client):
+        """password auth → _use_bkr=False → XML-RPC path (default fixture config)."""
         from tests.conftest import SAMPLE_JOB_XML
         result = await submit_job(ctx, job_xml=SAMPLE_JOB_XML, force=True)
         assert "submitted" in result.lower() or "J:" in result
 
-    @patch("mcp_beaker.servers.jobs.is_bkr_available", return_value=True)
-    @patch("mcp_beaker.servers.jobs.submit_job_via_bkr", new_callable=AsyncMock)
-    async def test_bkr_submit(self, mock_submit, mock_bkr, ctx, mock_client):
+    @patch("mcp_beaker.utils.bkr_cli.bkr_job_submit", new_callable=AsyncMock)
+    @patch("mcp_beaker.utils.bkr_cli.is_bkr_available", return_value=True)
+    async def test_bkr_submit(self, _mock_avail, mock_submit, ctx, mock_client):
+        mock_client.config = BeakerConfig(
+            url="https://beaker.test.example.com",
+            auth_method="kerberos",
+            kerberos_backend="bkr",
+            ssl_verify=False,
+        )
         mock_submit.return_value = "J:300"
         from tests.conftest import SAMPLE_JOB_XML
         result = await submit_job(ctx, job_xml=SAMPLE_JOB_XML, force=True)
@@ -244,8 +250,8 @@ class TestSubmitJob:
 
 
 class TestCloneJob:
-    @patch("mcp_beaker.servers.jobs.is_bkr_available", return_value=False)
-    async def test_success(self, mock_bkr, ctx, mock_client):
+    async def test_success(self, ctx, mock_client):
+        """password auth → _use_bkr=False → XML-RPC path."""
         result = await clone_job(ctx, job_id="J:100")
         mock_client.taskactions_to_xml.assert_awaited_with("J:100", clone=True)
         assert "submitted" in result.lower() or "J:" in result

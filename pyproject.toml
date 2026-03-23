@@ -25,6 +25,9 @@ dependencies = [
     "python-dotenv>=1.0.1",
 ]
 
+[project.optional-dependencies]
+kerberos = ["gssapi>=1.8.0"]
+
 [[project.authors]]
 name = "faizbawa"
 email = "mail.faiz.bawa@gmail.com"
