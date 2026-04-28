@@ -12,7 +12,7 @@ Works with any Beaker server instance. Built on [FastMCP v3](https://gofastmcp.c
 
 ## Features
 
-- **23 tools** covering the full Beaker lifecycle: systems, jobs, distros, tasks
+- **25 tools** covering the full Beaker lifecycle: systems, jobs, distros, tasks
 - **Flexible auth**: Kerberos (native GSSAPI/SPNEGO or `bkr` CLI fallback) and password (XML-RPC)
 - **Job XML validation**: auto-fills missing fields, infers distro families
 - **Failure diagnosis**: deep analysis with auto-retry on correctable failures
@@ -198,7 +198,7 @@ Options:
 | `list_lab_controllers` | List all lab controllers |
 | `search_tasks` | Search the task library |
 
-### Write Tools (10)
+### Write Tools (12)
 
 | Tool | Description |
 |------|-------------|
@@ -208,6 +208,8 @@ Options:
 | `watch_job` | Poll until completion with failure analysis and auto-retry |
 | `reserve_system` | Manually reserve a system |
 | `release_system` | Release a manually reserved system |
+| `loan_system` | Grant a loan for a system to a user |
+| `return_loan` | Return a current system loan |
 | `power_system` | Power on/off/reboot a system |
 | `provision_system` | Provision a reserved system with a distro |
 | `extend_watchdog` | Extend a running task's watchdog timer |
@@ -247,7 +249,7 @@ src/mcp_beaker/
   models/               # Pydantic response models
   servers/
     __init__.py         # FastMCP server, lifespan, DI helper
-    systems.py          # System tools (4 read + 4 write)
+    systems.py          # System tools (4 read + 6 write)
     jobs.py             # Job tools (4 read + 6 write)
     distros.py          # Distro tools (2 read)
     tasks.py            # Task tools (1 read)
