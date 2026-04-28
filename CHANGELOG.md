@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-04-28
+
+### Added
+- `loan_system` tool -- grant a loan for a Beaker system to a specific user (or yourself)
+- `return_loan` tool -- return the current loan on a Beaker system
+- `BeakerClient.systems_loan_grant()` and `systems_loan_return()` convenience methods
+- REST API support: `POST /systems/<fqdn>/loans/` and `PATCH /systems/<fqdn>/loans/+current`
+- `bkr loan-grant` and `bkr loan-return` CLI wrappers in `bkr_cli.py`
+- `rest_post_json()` and `rest_patch_json()` HTTP helpers on `BeakerClient`
+- 8 new tests for loan tools (recipient, self-loan, comment, error handling)
+
 ## [0.2.3] - 2026-03-23
 
 ### Added

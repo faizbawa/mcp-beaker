@@ -1,6 +1,6 @@
 [project]
 name = "mcp-beaker"
-version = "0.2.3"
+version = "0.3.0"
 description = "MCP server for Beaker lab automation — system provisioning, job management, distro discovery, and failure diagnosis"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -176,6 +176,33 @@ async def bkr_system_provision(
         )
 
 
+# -- Loan operations --------------------------------------------------------
+
+
+async def bkr_loan_grant(
+    fqdn: str,
+    *,
+    recipient: str | None = None,
+    comment: str = "",
+) -> None:
+    """Grant a loan for a system via ``bkr loan-grant``."""
+    args = ["loan-grant"]
+    if recipient:
+        args.extend(["--recipient", recipient])
+    if comment:
+        args.extend(["--comment", comment])
+    args.append(fqdn)
+    await _run_bkr(args, error_prefix=f"bkr loan-grant {fqdn} failed")
+
+
+async def bkr_loan_return(fqdn: str) -> None:
+    """Return a system loan via ``bkr loan-return``."""
+    await _run_bkr(
+        ["loan-return", fqdn],
+        error_prefix=f"bkr loan-return {fqdn} failed",
+    )
+
+
 # -- Watchdog ---------------------------------------------------------------
 
 

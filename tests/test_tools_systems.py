@@ -14,10 +14,12 @@ from mcp_beaker.servers.systems import (
     get_system_details,
     get_system_history,
     list_systems,
+    loan_system,
     power_system,
     provision_system,
     release_system,
     reserve_system,
+    return_loan,
 )
 
 ATOM_FEED = """\
@@ -249,4 +251,68 @@ class TestProvisionSystem:
     async def test_error(self, ctx, mock_client):
         mock_client.systems_provision = AsyncMock(side_effect=BeakerError("no perms"))
         result = await provision_system(ctx, fqdn="host1", distro_tree_id=100)
+        assert "Error" in result
+
+
+# ---- loan_system -----------------------------------------------------------
+
+class TestLoanSystem:
+    async def test_loan_to_recipient(self, ctx, mock_client):
+        result = await loan_system(ctx, fqdn="host1.example.com", recipient="jdoe")
+        assert "loaned" in result.lower()
+        assert "jdoe" in result
+        mock_client.systems_loan_grant.assert_awaited_with(
+            "host1.example.com", recipient="jdoe", comment="",
+        )
+
+    async def test_loan_to_self(self, ctx, mock_client):
+        result = await loan_system(ctx, fqdn="host1.example.com")
+        assert "loaned" in result.lower()
+        assert "yourself" in result
+        mock_client.systems_loan_grant.assert_awaited_with(
+            "host1.example.com", recipient=None, comment="",
+        )
+
+    async def test_loan_with_comment(self, ctx, mock_client):
+        result = await loan_system(
+            ctx, fqdn="host1", recipient="jdoe", comment="TPM testing",
+        )
+        assert "loaned" in result.lower()
+        mock_client.systems_loan_grant.assert_awaited_with(
+            "host1", recipient="jdoe", comment="TPM testing",
+        )
+
+    async def test_error(self, ctx, mock_client):
+        mock_client.systems_loan_grant = AsyncMock(
+            side_effect=BeakerError("no permission"),
+        )
+        result = await loan_system(ctx, fqdn="host1", recipient="jdoe")
+        assert "Error" in result
+        assert "no permission" in result
+
+    async def test_generic_error(self, ctx, mock_client):
+        mock_client.systems_loan_grant = AsyncMock(side_effect=RuntimeError("boom"))
+        result = await loan_system(ctx, fqdn="host1")
+        assert "Error" in result
+
+
+# ---- return_loan -----------------------------------------------------------
+
+class TestReturnLoan:
+    async def test_success(self, ctx, mock_client):
+        result = await return_loan(ctx, fqdn="host1.example.com")
+        assert "returned" in result.lower()
+        mock_client.systems_loan_return.assert_awaited_with("host1.example.com")
+
+    async def test_error(self, ctx, mock_client):
+        mock_client.systems_loan_return = AsyncMock(
+            side_effect=BeakerError("no active loan"),
+        )
+        result = await return_loan(ctx, fqdn="host1")
+        assert "Error" in result
+        assert "no active loan" in result
+
+    async def test_generic_error(self, ctx, mock_client):
+        mock_client.systems_loan_return = AsyncMock(side_effect=RuntimeError("boom"))
+        result = await return_loan(ctx, fqdn="host1")
         assert "Error" in result
