@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2026-04-28
+
+### Fixed
+- REST POST/PATCH calls (`loan_system`, `return_loan`) now trigger SPNEGO authentication before making the request, fixing 401 errors when using the `http` Kerberos backend
+
 ## [0.3.0] - 2026-04-28
 
 ### Added

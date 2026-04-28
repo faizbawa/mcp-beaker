@@ -326,6 +326,16 @@ class BeakerClient:
         response = await self.rest_get(path, **kwargs)
         return response.text
 
+    async def _ensure_rest_auth(self) -> None:
+        """Ensure the session cookie is set for REST calls that need auth."""
+        if self.config.auth_method == "password":
+            await asyncio.to_thread(self._ensure_password_auth)
+        elif (
+            self.config.auth_method == "kerberos"
+            and self.config.kerberos_backend == "http"
+        ):
+            await asyncio.to_thread(self._ensure_spnego_auth)
+
     async def rest_post_json(
         self,
         path: str,
@@ -334,6 +344,7 @@ class BeakerClient:
         timeout: float = 30.0,
     ) -> httpx.Response:
         """Make an authenticated POST request to the Beaker REST API."""
+        await self._ensure_rest_auth()
         url = f"{self.config.url}{path}"
         verify = self._get_verify()
         cookies: dict[str, str] = {}
@@ -379,6 +390,7 @@ class BeakerClient:
         timeout: float = 30.0,
     ) -> httpx.Response:
         """Make an authenticated PATCH request to the Beaker REST API."""
+        await self._ensure_rest_auth()
         url = f"{self.config.url}{path}"
         verify = self._get_verify()
         cookies: dict[str, str] = {}
