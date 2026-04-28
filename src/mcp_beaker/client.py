@@ -326,6 +326,96 @@ class BeakerClient:
         response = await self.rest_get(path, **kwargs)
         return response.text
 
+    async def rest_post_json(
+        self,
+        path: str,
+        json_body: dict[str, Any] | None = None,
+        *,
+        timeout: float = 30.0,
+    ) -> httpx.Response:
+        """Make an authenticated POST request to the Beaker REST API."""
+        url = f"{self.config.url}{path}"
+        verify = self._get_verify()
+        cookies: dict[str, str] = {}
+        session_cookie = getattr(self, "_session_cookie", None)
+        if session_cookie:
+            cookies["beaker_auth_token"] = session_cookie
+        async with httpx.AsyncClient(
+            verify=verify, follow_redirects=True, cookies=cookies,
+        ) as client:
+            try:
+                response = await client.post(
+                    url,
+                    json=json_body,
+                    headers={"Content-Type": "application/json", "Accept": "application/json"},
+                    timeout=timeout,
+                )
+                if response.url and "login" in str(response.url):
+                    raise BeakerAuthenticationError(
+                        f"Beaker redirected to login for {path}. "
+                        "This endpoint requires authentication."
+                    )
+                response.raise_for_status()
+                return response
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if status == 404:
+                    raise BeakerNotFoundError(f"Not found: {path}") from exc
+                if status in (401, 403):
+                    raise BeakerAuthenticationError(
+                        f"Authentication failed for {path} (HTTP {status})"
+                    ) from exc
+                raise
+            except httpx.ConnectError as exc:
+                raise BeakerConnectionError(
+                    f"Could not connect to Beaker at {self.config.url}: {exc}"
+                ) from exc
+
+    async def rest_patch_json(
+        self,
+        path: str,
+        json_body: dict[str, Any] | None = None,
+        *,
+        timeout: float = 30.0,
+    ) -> httpx.Response:
+        """Make an authenticated PATCH request to the Beaker REST API."""
+        url = f"{self.config.url}{path}"
+        verify = self._get_verify()
+        cookies: dict[str, str] = {}
+        session_cookie = getattr(self, "_session_cookie", None)
+        if session_cookie:
+            cookies["beaker_auth_token"] = session_cookie
+        async with httpx.AsyncClient(
+            verify=verify, follow_redirects=True, cookies=cookies,
+        ) as client:
+            try:
+                response = await client.patch(
+                    url,
+                    json=json_body,
+                    headers={"Content-Type": "application/json", "Accept": "application/json"},
+                    timeout=timeout,
+                )
+                if response.url and "login" in str(response.url):
+                    raise BeakerAuthenticationError(
+                        f"Beaker redirected to login for {path}. "
+                        "This endpoint requires authentication."
+                    )
+                response.raise_for_status()
+                return response
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if status == 404:
+                    raise BeakerNotFoundError(f"Not found: {path}") from exc
+                if status in (401, 403):
+                    raise BeakerAuthenticationError(
+                        f"Authentication failed for {path} (HTTP {status})"
+                    ) from exc
+                raise
+            except httpx.ConnectError as exc:
+                raise BeakerConnectionError(
+                    f"Could not connect to Beaker at {self.config.url}: {exc}"
+                ) from exc
+
     @property
     def _use_bkr(self) -> bool:
         """Whether to route authenticated calls through ``bkr`` CLI subprocesses.
@@ -455,6 +545,41 @@ class BeakerClient:
             kernel_options_post,
             kickstart,
             reboot,
+        )
+
+    async def systems_loan_grant(
+        self,
+        fqdn: str,
+        recipient: str | None = None,
+        comment: str = "",
+    ) -> None:
+        """Grant a loan for a system.
+
+        Uses ``bkr loan-grant`` when the bkr backend is active, otherwise
+        calls ``POST /systems/<fqdn>/loans/`` on the Beaker REST API.
+        """
+        if self._use_bkr:
+            await bkr_cli.bkr_loan_grant(fqdn, recipient=recipient, comment=comment)
+            return
+        body: dict[str, Any] = {}
+        if recipient:
+            body["recipient"] = {"user_name": recipient}
+        if comment:
+            body["comment"] = comment
+        await self.rest_post_json(f"/systems/{fqdn}/loans/", body or None)
+
+    async def systems_loan_return(self, fqdn: str) -> None:
+        """Return the current loan on a system.
+
+        Uses ``bkr loan-return`` when the bkr backend is active, otherwise
+        calls ``PATCH /systems/<fqdn>/loans/+current`` on the Beaker REST API.
+        """
+        if self._use_bkr:
+            await bkr_cli.bkr_loan_return(fqdn)
+            return
+        await self.rest_patch_json(
+            f"/systems/{fqdn}/loans/+current",
+            {"finish": "now"},
         )
 
     async def systems_history(

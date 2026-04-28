@@ -1,4 +1,4 @@
-"""System-related Beaker tools (4 read + 4 write)."""
+"""System-related Beaker tools (4 read + 6 write)."""
 
 from __future__ import annotations
 
@@ -266,6 +266,69 @@ async def power_system(
     except Exception as exc:
         logger.error("Failed to power %s %s: %s", action, fqdn, exc)
         return _error(f"Failed to power {action} '{fqdn}': {exc}")
+
+
+@mcp.tool(
+    tags={"beaker", "write", "systems"},
+    annotations={"title": "Loan System", "readOnlyHint": False},
+)
+async def loan_system(
+    ctx: Context,
+    fqdn: Annotated[str, Field(description="FQDN of the system to loan.")],
+    recipient: Annotated[
+        str,
+        Field(description="Username of the loan recipient. If empty, loans to the current user."),
+    ] = "",
+    comment: Annotated[
+        str,
+        Field(description="Reason or purpose for the loan."),
+    ] = "",
+) -> str:
+    """Grant a loan for a Beaker system.
+
+    The loan recipient gets full permissions to reserve, provision, and
+    schedule jobs on the system. While loaned, only the recipient and
+    the system owner can use it. You must have permission to loan the
+    system (typically the owner or an admin).
+    """
+    client = beaker_client(ctx)
+    try:
+        await client.systems_loan_grant(
+            fqdn,
+            recipient=recipient or None,
+            comment=comment,
+        )
+        target = recipient if recipient else "yourself"
+        return f"Successfully loaned system '{fqdn}' to {target}."
+    except BeakerError as exc:
+        return _error(str(exc))
+    except Exception as exc:
+        logger.error("Failed to loan %s: %s", fqdn, exc)
+        return _error(f"Failed to loan '{fqdn}': {exc}")
+
+
+@mcp.tool(
+    tags={"beaker", "write", "systems"},
+    annotations={"title": "Return System Loan", "readOnlyHint": False},
+)
+async def return_loan(
+    ctx: Context,
+    fqdn: Annotated[str, Field(description="FQDN of the system whose loan to return.")],
+) -> str:
+    """Return a current loan on a Beaker system.
+
+    Either the loan recipient or a user with permission to loan the
+    system can return it. The system reverts to its normal access policy.
+    """
+    client = beaker_client(ctx)
+    try:
+        await client.systems_loan_return(fqdn)
+        return f"Successfully returned loan for system '{fqdn}'."
+    except BeakerError as exc:
+        return _error(str(exc))
+    except Exception as exc:
+        logger.error("Failed to return loan for %s: %s", fqdn, exc)
+        return _error(f"Failed to return loan for '{fqdn}': {exc}")
 
 
 @mcp.tool(
