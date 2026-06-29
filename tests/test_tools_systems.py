@@ -9,6 +9,7 @@ import httpx
 
 from mcp_beaker.exceptions import BeakerError, BeakerNotFoundError
 from mcp_beaker.servers.systems import (
+    _build_search_params,
     _parse_atom_feed,
     get_system_arches,
     get_system_details,
@@ -20,6 +21,7 @@ from mcp_beaker.servers.systems import (
     release_system,
     reserve_system,
     return_loan,
+    search_systems,
 )
 
 ATOM_FEED = """\
@@ -78,6 +80,116 @@ class TestListSystems:
         mock_client.rest_get = AsyncMock(side_effect=BeakerError("conn err"))
         result = await list_systems(ctx)
         assert "Error" in result
+
+
+# ---- _build_search_params helper -------------------------------------------
+
+
+class TestBuildSearchParams:
+    def test_single_filter(self):
+        params = _build_search_params({"cpu_vendor": "GenuineIntel"})
+        assert params["systemsearch-0.table"] == "CPU/Vendor"
+        assert params["systemsearch-0.operation"] == "is"
+        assert params["systemsearch-0.value"] == "GenuineIntel"
+
+    def test_multiple_filters(self):
+        params = _build_search_params({
+            "cpu_vendor": "GenuineIntel",
+            "cpu_family": 6,
+            "cpu_model": 143,
+        })
+        assert params["systemsearch-0.table"] == "CPU/Vendor"
+        assert params["systemsearch-1.table"] == "CPU/Family"
+        assert params["systemsearch-2.table"] == "CPU/Model"
+        assert params["systemsearch-2.value"] == "143"
+
+    def test_comparison_operators(self):
+        params = _build_search_params({"cpu_cores": ">=64"})
+        assert params["systemsearch-0.operation"] == "greater than"
+        assert params["systemsearch-0.value"] == "64"
+
+        params = _build_search_params({"memory": "<=131072"})
+        assert params["systemsearch-0.operation"] == "less than"
+        assert params["systemsearch-0.value"] == "131072"
+
+    def test_unknown_key_ignored(self):
+        params = _build_search_params({"nonexistent_field": "value"})
+        assert len(params) == 0
+
+
+# ---- search_systems --------------------------------------------------------
+
+
+SEARCH_FEED = """\
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Systems</title>
+  <entry>
+    <title>spr-host1.example.com</title>
+    <link type="text/html" href="https://beaker.test/view/spr-host1.example.com"/>
+  </entry>
+  <entry>
+    <title>spr-host2.example.com</title>
+    <link type="text/html" href="https://beaker.test/view/spr-host2.example.com"/>
+  </entry>
+</feed>"""
+
+
+class TestSearchSystems:
+    async def test_search_by_cpu(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=SEARCH_FEED))
+        result = await search_systems(
+            ctx,
+            cpu_vendor="GenuineIntel",
+            cpu_family=6,
+            cpu_model=143,
+        )
+        assert "spr-host1.example.com" in result
+        assert "spr-host2.example.com" in result
+        assert "2 system(s)" in result
+        call_kwargs = mock_client.rest_get.call_args
+        params = call_kwargs.kwargs.get("params", {})
+        assert params["systemsearch-0.table"] == "CPU/Vendor"
+        assert params["systemsearch-0.value"] == "GenuineIntel"
+
+    async def test_search_with_pool_and_arch(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=SEARCH_FEED))
+        result = await search_systems(ctx, arch="aarch64", pool="kernel-arm-pool")
+        assert "2 system(s)" in result
+
+    async def test_search_no_results(self, ctx, mock_client):
+        empty_feed = (
+            '<?xml version="1.0" encoding="utf-8"?>'
+            '<feed xmlns="http://www.w3.org/2005/Atom"><title>Systems</title></feed>'
+        )
+        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=empty_feed))
+        result = await search_systems(ctx, cpu_vendor="NonExistent")
+        assert "No systems found" in result
+
+    async def test_search_no_filters(self, ctx):
+        result = await search_systems(ctx, status="")
+        assert "Error" in result
+        assert "At least one" in result
+
+    async def test_search_error(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(side_effect=BeakerError("timeout"))
+        result = await search_systems(ctx, cpu_vendor="GenuineIntel")
+        assert "Error" in result
+
+    async def test_search_bad_xml(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text="not xml"))
+        result = await search_systems(ctx, cpu_vendor="GenuineIntel")
+        assert "Error" in result
+
+    async def test_search_memory_range(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=SEARCH_FEED))
+        result = await search_systems(ctx, memory=">=131072")
+        assert "2 system(s)" in result
+        call_kwargs = mock_client.rest_get.call_args
+        params = call_kwargs.kwargs.get("params", {})
+        assert params["systemsearch-0.table"] == "Memory/MiB"
+        assert params["systemsearch-0.operation"] == "greater than"
+        assert params["systemsearch-0.value"] == "131072"
 
 
 # ---- get_system_details ----------------------------------------------------

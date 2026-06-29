@@ -1,4 +1,4 @@
-"""System-related Beaker tools (4 read + 6 write)."""
+"""System-related Beaker tools (5 read + 6 write)."""
 
 from __future__ import annotations
 
@@ -27,6 +27,63 @@ FILTER_ENDPOINTS: dict[str, str] = {
     "available": "/available/",
     "free": "/free/",
 }
+
+SEARCH_TABLE_MAP: dict[str, str] = {
+    "cpu_vendor": "CPU/Vendor",
+    "cpu_model_name": "CPU/ModelName",
+    "cpu_family": "CPU/Family",
+    "cpu_model": "CPU/Model",
+    "cpu_cores": "CPU/Cores",
+    "cpu_sockets": "CPU/Sockets",
+    "cpu_processors": "CPU/Processors",
+    "cpu_speed": "CPU/Speed",
+    "cpu_hyper": "CPU/Hyper",
+    "cpu_flags": "CPU/Flag",
+    "arch": "Arch/Arch",
+    "memory": "Memory/MiB",
+    "status": "System/Status",
+    "type": "System/Type",
+    "vendor": "System/Vendor",
+    "model": "System/Model",
+    "location": "System/Location",
+    "pool": "System/Pools",
+    "numa_nodes": "System/NumaNodes",
+    "disk_space": "Disk/Size",
+    "disk_count": "Disk/Count",
+    "hypervisor": "System/Hypervisor",
+    "owner": "System/Owner",
+    "user": "System/User",
+    "lender": "System/Lender",
+}
+
+COMPARISON_OPS = {">=": "greater than", "<=": "less than", ">": "greater than", "<": "less than"}
+
+
+def _build_search_params(
+    filters: dict[str, str | int | float],
+) -> dict[str, str]:
+    """Convert filter dict to Beaker systemsearch query parameters."""
+    params: dict[str, str] = {}
+    idx = 0
+    for key, value in filters.items():
+        table = SEARCH_TABLE_MAP.get(key)
+        if table is None:
+            continue
+        str_value = str(value)
+        operation = "is"
+        for op_str, op_name in COMPARISON_OPS.items():
+            if str_value.startswith(op_str):
+                operation = op_name
+                str_value = str_value[len(op_str):]
+                break
+        if operation == "is" and "%" in str_value:
+            operation = "like"
+        prefix = f"systemsearch-{idx}"
+        params[f"{prefix}.table"] = table
+        params[f"{prefix}.operation"] = operation
+        params[f"{prefix}.value"] = str_value
+        idx += 1
+    return params
 
 
 def _error(msg: str) -> str:
@@ -95,6 +152,118 @@ async def list_systems(
     except Exception as exc:
         logger.error("Failed to list systems: %s", exc)
         return _error(f"Failed to list systems: {exc}")
+
+
+@mcp.tool(
+    tags={"beaker", "read", "systems"},
+    annotations={"title": "Search Systems", "readOnlyHint": True},
+)
+async def search_systems(
+    ctx: Context,
+    cpu_vendor: Annotated[
+        str,
+        Field(description="CPU vendor string, e.g. 'GenuineIntel', 'AuthenticAMD', 'Ampere(R)'."),
+    ] = "",
+    cpu_model_name: Annotated[
+        str,
+        Field(description="CPU model name substring to match, e.g. 'Xeon Gold'."),
+    ] = "",
+    cpu_family: Annotated[
+        int,
+        Field(
+            description="CPU family number. "
+            "Intel=6, AMD Zen3/4=25, AMD Zen1/2=23, AMD Zen5=26.",
+        ),
+    ] = 0,
+    cpu_model: Annotated[
+        int,
+        Field(
+            description="CPU model number identifying microarchitecture. "
+            "Intel family 6: 207=Emerald Rapids, 175=Sierra Forest, 173=Granite Rapids, "
+            "143=Sapphire Rapids, 106=Ice Lake, 85=Skylake/Cascade Lake, "
+            "79=Broadwell, 63=Haswell, 165=Comet Lake. "
+            "AMD family 25: 17=Genoa, 1=Milan. AMD family 23: 49=Rome, 1=Naples. "
+            "AMD family 26: Turin.",
+        ),
+    ] = 0,
+    cpu_cores: Annotated[
+        str,
+        Field(description="CPU core count. Prefix with >= or <= for range, e.g. '>=64'."),
+    ] = "",
+    arch: Annotated[
+        str,
+        Field(description="Architecture filter: 'x86_64', 'aarch64', 's390x', 'ppc64le'."),
+    ] = "",
+    memory: Annotated[
+        str,
+        Field(
+            description="Memory in MiB. Prefix with >= or <= for range, "
+            "e.g. '>=131072' for 128GB+.",
+        ),
+    ] = "",
+    pool: Annotated[
+        str,
+        Field(description="Beaker pool name, e.g. 'rhelvirt-gating'."),
+    ] = "",
+    status: Annotated[
+        str,
+        Field(description="System status: 'Automated', 'Manual', 'Broken'. Default: 'Automated'."),
+    ] = "Automated",
+    limit: Annotated[
+        int,
+        Field(description="Maximum number of systems to return. Default: 10."),
+    ] = 10,
+) -> str:
+    """Search Beaker systems by hardware attributes.
+
+    Find systems matching CPU, architecture, memory, pool, and other
+    hardware criteria. All filters are combined with AND logic.
+    """
+    client = beaker_client(ctx)
+    filters: dict[str, str | int | float] = {}
+    if cpu_vendor:
+        filters["cpu_vendor"] = cpu_vendor
+    if cpu_model_name:
+        filters["cpu_model_name"] = cpu_model_name
+    if cpu_family:
+        filters["cpu_family"] = cpu_family
+    if cpu_model:
+        filters["cpu_model"] = cpu_model
+    if cpu_cores:
+        filters["cpu_cores"] = cpu_cores
+    if arch:
+        filters["arch"] = arch
+    if memory:
+        filters["memory"] = memory
+    if pool:
+        filters["pool"] = pool
+    if status:
+        filters["status"] = status
+
+    if not filters:
+        return _error("At least one search filter is required.")
+
+    search_params = _build_search_params(filters)
+    search_params["tg_format"] = "atom"
+    search_params["list_tgp_limit"] = str(limit)
+
+    try:
+        response = await client.rest_get("/", params=search_params)
+        systems = _parse_atom_feed(response.text)
+        if not systems:
+            filter_desc = ", ".join(f"{k}={v}" for k, v in filters.items())
+            return f"No systems found matching: {filter_desc}"
+        lines = [f"Found {len(systems)} system(s) matching search criteria:\n"]
+        for idx, system in enumerate(systems, start=1):
+            lines.append(f"  {idx}. {system.fqdn}")
+        return "\n".join(lines)
+    except BeakerError as exc:
+        return _error(str(exc))
+    except ET.ParseError:
+        return _error("Failed to parse search results from the server.")
+    except Exception as exc:
+        logger.error("Failed to search systems: %s", exc)
+        return _error(f"Failed to search systems: {exc}")
 
 
 @mcp.tool(
