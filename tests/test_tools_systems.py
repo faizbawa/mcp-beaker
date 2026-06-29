@@ -39,6 +39,7 @@ ATOM_FEED = """\
 
 # ---- parse_atom_feed helper ------------------------------------------------
 
+
 class TestParseAtomFeed:
     def test_parses_entries(self):
         systems = _parse_atom_feed(ATOM_FEED)
@@ -55,11 +56,10 @@ class TestParseAtomFeed:
 
 # ---- list_systems ----------------------------------------------------------
 
+
 class TestListSystems:
     async def test_success(self, ctx, mock_client):
-        mock_client.rest_get = AsyncMock(
-            return_value=httpx.Response(200, text=ATOM_FEED)
-        )
+        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=ATOM_FEED))
         result = await list_systems(ctx)
         assert "host1.example.com" in result
         assert "host2.example.com" in result
@@ -70,9 +70,7 @@ class TestListSystems:
         assert "Invalid filter_type" in result
 
     async def test_bad_xml(self, ctx, mock_client):
-        mock_client.rest_get = AsyncMock(
-            return_value=httpx.Response(200, text="not xml")
-        )
+        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text="not xml"))
         result = await list_systems(ctx)
         assert "Error" in result
 
@@ -84,32 +82,52 @@ class TestListSystems:
 
 # ---- get_system_details ----------------------------------------------------
 
+
 class TestGetSystemDetails:
     async def test_success(self, ctx, mock_client):
-        mock_client.rest_get_json = AsyncMock(return_value={
-            "fqdn": "host1.example.com",
-            "status": "Automated",
-            "type": "Machine",
-            "arch": ["x86_64"],
-            "owner": {"user_name": "admin"},
-            "lab_controller": {"fqdn": "lc1"},
-            "lender": None,
-            "location": None,
-            "serial_number": None,
-            "model": None,
-            "vendor": None,
-            "mac_address": None,
-            "memory": 16384,
-            "numa_nodes": 2,
-            "cpu": {"model_name": "Intel Xeon"},
-        })
+        mock_client.rest_get_json = AsyncMock(
+            return_value={
+                "fqdn": "host1.example.com",
+                "status": "Automated",
+                "type": "Machine",
+                "arches": ["x86_64"],
+                "owner": {"user_name": "admin"},
+                "lab_controller": {"fqdn": "lc1"},
+                "lender": None,
+                "location": None,
+                "serial_number": None,
+                "model": None,
+                "vendor": None,
+                "mac_address": None,
+                "memory": 16384,
+                "numa_nodes": 2,
+                "cpu_vendor": "GenuineIntel",
+                "cpu_model_name": "Intel(R) Xeon(R) Gold 6454S",
+                "cpu_family": 6,
+                "cpu_model": 143,
+                "cpu_stepping": 8,
+                "cpu_speed": 3400.0,
+                "cpu_processors": 128,
+                "cpu_cores": 64,
+                "cpu_sockets": 2,
+                "cpu_hyper": True,
+                "cpu_flags": ["lm", "fpu", "sse", "sse2", "avx", "avx2"],
+                "pools": ["rhelvirt-gating", "virt"],
+            }
+        )
         result = await get_system_details(ctx, fqdn="host1.example.com")
         assert "host1.example.com" in result
+        assert "x86_64" in result
+        assert "GenuineIntel" in result
+        assert "Intel(R) Xeon(R) Gold 6454S" in result
+        assert "Sockets: 2" in result
+        assert "Cores: 64" in result
+        assert "Hyper-Threading: Yes" in result
+        assert "rhelvirt-gating" in result
+        assert "virt" in result
 
     async def test_not_found(self, ctx, mock_client):
-        mock_client.rest_get_json = AsyncMock(
-            side_effect=BeakerNotFoundError("not found")
-        )
+        mock_client.rest_get_json = AsyncMock(side_effect=BeakerNotFoundError("not found"))
         result = await get_system_details(ctx, fqdn="ghost.example.com")
         assert "not found" in result.lower()
 
@@ -121,6 +139,7 @@ class TestGetSystemDetails:
 
 # ---- get_system_history ----------------------------------------------------
 
+
 class TestGetSystemHistory:
     async def test_success(self, ctx, mock_client):
         result = await get_system_history(ctx, fqdn="host1.example.com")
@@ -128,14 +147,19 @@ class TestGetSystemHistory:
 
     async def test_xmlrpc_datetime(self, ctx, mock_client):
         """DateTime objects from XML-RPC should be stringified automatically."""
-        mock_client.systems_history = AsyncMock(return_value=[
-            {
-                "created": DateTime("20260312T10:00:00"),
-                "user": "testuser", "service": "XMLRPC",
-                "action": "Changed", "field_name": "User",
-                "old_value": "admin", "new_value": "testuser",
-            },
-        ])
+        mock_client.systems_history = AsyncMock(
+            return_value=[
+                {
+                    "created": DateTime("20260312T10:00:00"),
+                    "user": "testuser",
+                    "service": "XMLRPC",
+                    "action": "Changed",
+                    "field_name": "User",
+                    "old_value": "admin",
+                    "new_value": "testuser",
+                },
+            ]
+        )
         result = await get_system_history(ctx, fqdn="host1.example.com")
         assert "testuser" in result
 
@@ -155,6 +179,7 @@ class TestGetSystemHistory:
 
 # ---- get_system_arches -----------------------------------------------------
 
+
 class TestGetSystemArches:
     async def test_success(self, ctx, mock_client):
         result = await get_system_arches(ctx, fqdn="host1")
@@ -162,14 +187,13 @@ class TestGetSystemArches:
         assert "aarch64" in result
 
     async def test_error(self, ctx, mock_client):
-        mock_client.systems_get_osmajor_arches = AsyncMock(
-            side_effect=BeakerError("deny")
-        )
+        mock_client.systems_get_osmajor_arches = AsyncMock(side_effect=BeakerError("deny"))
         result = await get_system_arches(ctx, fqdn="host1")
         assert "Error" in result
 
 
 # ---- reserve_system --------------------------------------------------------
+
 
 class TestReserveSystem:
     async def test_success(self, ctx, mock_client):
@@ -186,6 +210,7 @@ class TestReserveSystem:
 
 # ---- release_system --------------------------------------------------------
 
+
 class TestReleaseSystem:
     async def test_success(self, ctx, mock_client):
         result = await release_system(ctx, fqdn="host1.example.com")
@@ -198,6 +223,7 @@ class TestReleaseSystem:
 
 
 # ---- power_system ----------------------------------------------------------
+
 
 class TestPowerSystem:
     async def test_reboot(self, ctx, mock_client):
@@ -226,6 +252,7 @@ class TestPowerSystem:
 
 
 # ---- provision_system ------------------------------------------------------
+
 
 class TestProvisionSystem:
     async def test_success(self, ctx, mock_client):
@@ -256,13 +283,16 @@ class TestProvisionSystem:
 
 # ---- loan_system -----------------------------------------------------------
 
+
 class TestLoanSystem:
     async def test_loan_to_recipient(self, ctx, mock_client):
         result = await loan_system(ctx, fqdn="host1.example.com", recipient="jdoe")
         assert "loaned" in result.lower()
         assert "jdoe" in result
         mock_client.systems_loan_grant.assert_awaited_with(
-            "host1.example.com", recipient="jdoe", comment="",
+            "host1.example.com",
+            recipient="jdoe",
+            comment="",
         )
 
     async def test_loan_to_self(self, ctx, mock_client):
@@ -270,16 +300,23 @@ class TestLoanSystem:
         assert "loaned" in result.lower()
         assert "yourself" in result
         mock_client.systems_loan_grant.assert_awaited_with(
-            "host1.example.com", recipient=None, comment="",
+            "host1.example.com",
+            recipient=None,
+            comment="",
         )
 
     async def test_loan_with_comment(self, ctx, mock_client):
         result = await loan_system(
-            ctx, fqdn="host1", recipient="jdoe", comment="TPM testing",
+            ctx,
+            fqdn="host1",
+            recipient="jdoe",
+            comment="TPM testing",
         )
         assert "loaned" in result.lower()
         mock_client.systems_loan_grant.assert_awaited_with(
-            "host1", recipient="jdoe", comment="TPM testing",
+            "host1",
+            recipient="jdoe",
+            comment="TPM testing",
         )
 
     async def test_error(self, ctx, mock_client):
@@ -297,6 +334,7 @@ class TestLoanSystem:
 
 
 # ---- return_loan -----------------------------------------------------------
+
 
 class TestReturnLoan:
     async def test_success(self, ctx, mock_client):

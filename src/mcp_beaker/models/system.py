@@ -43,6 +43,18 @@ class SystemInfo(BaseModel):
     release_action: str | None = ""
     arches: list[str] = Field(default_factory=list)
     lab_controller: dict[str, Any] | None = None
+    pools: list[str] = Field(default_factory=list)
+    cpu_vendor: str | None = ""
+    cpu_model_name: str | None = ""
+    cpu_family: int | None = None
+    cpu_model: int | None = None
+    cpu_stepping: int | None = None
+    cpu_speed: float | None = None
+    cpu_processors: int | None = None
+    cpu_cores: int | None = None
+    cpu_sockets: int | None = None
+    cpu_hyper: bool | None = None
+    cpu_flags: list[str] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
 

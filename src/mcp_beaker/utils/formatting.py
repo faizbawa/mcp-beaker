@@ -84,6 +84,33 @@ def format_system_details(info: SystemInfo) -> str:
     if info.lab_controller and isinstance(info.lab_controller, dict):
         lines.append(f"  Lab Controller: {info.lab_controller.get('fqdn', 'N/A')}")
 
+    cpu_lines: list[str] = []
+    cpu_fields: list[tuple[str, str]] = [
+        ("cpu_vendor", "Vendor"),
+        ("cpu_model_name", "Model Name"),
+        ("cpu_family", "Family"),
+        ("cpu_model", "Model"),
+        ("cpu_stepping", "Stepping"),
+        ("cpu_speed", "Speed (MHz)"),
+        ("cpu_processors", "Processors"),
+        ("cpu_cores", "Cores"),
+        ("cpu_sockets", "Sockets"),
+    ]
+    for attr, label in cpu_fields:
+        value = getattr(info, attr, None)
+        if value is not None and value != "":
+            cpu_lines.append(f"    {label}: {value}")
+    if info.cpu_hyper is not None:
+        cpu_lines.append(f"    Hyper-Threading: {'Yes' if info.cpu_hyper else 'No'}")
+    if info.cpu_flags:
+        cpu_lines.append(f"    Flags: {' '.join(info.cpu_flags)}")
+    if cpu_lines:
+        lines.append("  CPU:")
+        lines.extend(cpu_lines)
+
+    if info.pools:
+        lines.append(f"  Pools: {', '.join(info.pools)}")
+
     return "\n".join(lines)
 
 
