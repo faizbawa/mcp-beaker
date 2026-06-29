@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-06-29
+
+### Added
+- CPU details in `get_system_details` output: vendor, model name, family, model, stepping, speed, processors, cores, sockets, hyper-threading, and CPU flags
+- Pool membership in `get_system_details` output: list of Beaker pool names the system belongs to
+- 12 new fields on `SystemInfo` model matching the Beaker REST API contract
+- Test assertions for all new CPU and pool fields
+
+### Fixed
+- Test mock data now uses correct `arches` field name (was `arch`, silently ignored by Pydantic)
+
+### Contributors
+- @tasharma1
+
 ## [0.3.1] - 2026-04-28
 
 ### Fixed
