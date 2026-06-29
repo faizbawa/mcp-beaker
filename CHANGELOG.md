@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-06-29
+
+### Added
+- `search_systems` tool — search Beaker systems by CPU vendor, model, family, architecture, memory, pool, and other hardware attributes
+- `_build_search_params` helper to map filter dicts to Beaker's `systemsearch-N.*` query parameters
+- Support for comparison operators (`>=`, `<=`) in numeric filters (cores, memory)
+- 11 new tests covering search parameter building, CPU/pool/arch/memory searches, edge cases
+
 ## [0.4.0] - 2026-06-29
 
 ### Added
