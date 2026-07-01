@@ -14,6 +14,7 @@ from mcp_beaker.servers.systems import (
     get_system_arches,
     get_system_details,
     get_system_history,
+    get_system_status,
     list_systems,
     loan_system,
     power_system,
@@ -238,6 +239,31 @@ class TestGetSystemDetails:
         assert "rhelvirt-gating" in result
         assert "virt" in result
 
+    async def test_success_with_loan(self, ctx, mock_client):
+        mock_client.rest_get_json = AsyncMock(
+            return_value={
+                "fqdn": "host1.example.com",
+                "status": "Manual",
+                "type": "Machine",
+                "arches": ["x86_64"],
+                "owner": {"user_name": "admin"},
+                "current_loan": {
+                    "recipient": "jdoe",
+                    "recipient_user": {"user_name": "jdoe", "email_address": "jdoe@test.com"},
+                    "comment": "RHEL-10 testing",
+                },
+                "current_reservation": {
+                    "user": {"user_name": "jdoe"},
+                    "recipe_id": 54321,
+                },
+            }
+        )
+        result = await get_system_details(ctx, fqdn="host1.example.com")
+        assert "Loaned To: jdoe" in result
+        assert "Loan Comment: RHEL-10 testing" in result
+        assert "Reserved By: jdoe" in result
+        assert "R:54321" in result
+
     async def test_not_found(self, ctx, mock_client):
         mock_client.rest_get_json = AsyncMock(side_effect=BeakerNotFoundError("not found"))
         result = await get_system_details(ctx, fqdn="ghost.example.com")
@@ -246,6 +272,55 @@ class TestGetSystemDetails:
     async def test_generic_error(self, ctx, mock_client):
         mock_client.rest_get_json = AsyncMock(side_effect=RuntimeError("boom"))
         result = await get_system_details(ctx, fqdn="host")
+        assert "Error" in result
+
+
+# ---- get_system_status -----------------------------------------------------
+
+
+class TestGetSystemStatus:
+    async def test_no_loan(self, ctx, mock_client):
+        result = await get_system_status(ctx, fqdn="host1.example.com")
+        assert "Automated" in result
+        assert "(not loaned)" in result
+        assert "(not reserved)" in result
+
+    async def test_with_loan(self, ctx, mock_client):
+        mock_client.systems_status = AsyncMock(return_value={
+            "condition": "Manual",
+            "current_loan": {
+                "recipient": "jdoe",
+                "recipient_user": {"user_name": "jdoe", "email_address": "jdoe@test.com"},
+                "comment": "Kernel testing",
+            },
+            "current_reservation": None,
+        })
+        result = await get_system_status(ctx, fqdn="host1.example.com")
+        assert "jdoe" in result
+        assert "Kernel testing" in result
+        assert "Manual" in result
+
+    async def test_with_reservation(self, ctx, mock_client):
+        mock_client.systems_status = AsyncMock(return_value={
+            "condition": "Automated",
+            "current_loan": None,
+            "current_reservation": {
+                "user": {"user_name": "jdoe"},
+                "recipe_id": 12345,
+            },
+        })
+        result = await get_system_status(ctx, fqdn="host1.example.com")
+        assert "jdoe" in result
+        assert "R:12345" in result
+
+    async def test_not_found(self, ctx, mock_client):
+        mock_client.systems_status = AsyncMock(side_effect=BeakerNotFoundError("not found"))
+        result = await get_system_status(ctx, fqdn="ghost.example.com")
+        assert "not found" in result.lower()
+
+    async def test_generic_error(self, ctx, mock_client):
+        mock_client.systems_status = AsyncMock(side_effect=RuntimeError("boom"))
+        result = await get_system_status(ctx, fqdn="host1")
         assert "Error" in result
 
 

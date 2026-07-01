@@ -594,6 +594,13 @@ class BeakerClient:
             {"finish": "now"},
         )
 
+    async def systems_status(self, fqdn: str) -> dict[str, Any]:
+        """Get system status including current loan and reservation.
+
+        Calls ``GET /systems/<fqdn>/status`` on the Beaker REST API.
+        """
+        return await self.rest_get_json(f"/systems/{fqdn}/status")
+
     async def systems_history(
         self, fqdn: str, since: str | None = None,
     ) -> list[dict[str, Any]]:

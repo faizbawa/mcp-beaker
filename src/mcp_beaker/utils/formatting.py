@@ -7,7 +7,14 @@ from typing import Any
 
 from mcp_beaker.models.distro import DistroTreeInfo
 from mcp_beaker.models.job import JobInfo, LogFileEntry
-from mcp_beaker.models.system import SystemHistoryEntry, SystemInfo, SystemListItem
+from mcp_beaker.models.system import (
+    SystemHistoryEntry,
+    SystemInfo,
+    SystemListItem,
+    SystemLoanInfo,
+    SystemReservationInfo,
+    SystemStatusInfo,
+)
 
 # ---------------------------------------------------------------------------
 # Status / result constants
@@ -31,6 +38,26 @@ POSITIVE_SETTLED_STATUSES = {"Reserved"}
 # ---------------------------------------------------------------------------
 # Systems
 # ---------------------------------------------------------------------------
+
+
+def _format_loan_lines(loan: SystemLoanInfo) -> list[str]:
+    recipient = (
+        loan.recipient_user.user_name
+        if loan.recipient_user and loan.recipient_user.user_name
+        else loan.recipient or "Unknown"
+    )
+    lines = [f"  Loaned To: {recipient}"]
+    if loan.comment:
+        lines.append(f"  Loan Comment: {loan.comment}")
+    return lines
+
+
+def _format_reservation_lines(res: SystemReservationInfo) -> list[str]:
+    user = res.user.user_name if res.user and res.user.user_name else "Unknown"
+    lines = [f"  Reserved By: {user}"]
+    if res.recipe_id is not None:
+        lines.append(f"  Recipe ID: R:{res.recipe_id}")
+    return lines
 
 
 def format_system_list(systems: list[SystemListItem], filter_type: str) -> str:
@@ -110,6 +137,27 @@ def format_system_details(info: SystemInfo) -> str:
 
     if info.pools:
         lines.append(f"  Pools: {', '.join(info.pools)}")
+
+    if info.current_loan:
+        lines.extend(_format_loan_lines(info.current_loan))
+    if info.current_reservation:
+        lines.extend(_format_reservation_lines(info.current_reservation))
+
+    return "\n".join(lines)
+
+
+def format_system_status(status: SystemStatusInfo, fqdn: str) -> str:
+    lines = [f"System: {fqdn}", f"  Condition: {status.condition or 'Unknown'}"]
+
+    if status.current_loan:
+        lines.extend(_format_loan_lines(status.current_loan))
+    else:
+        lines.append("  Loaned To: (not loaned)")
+
+    if status.current_reservation:
+        lines.extend(_format_reservation_lines(status.current_reservation))
+    else:
+        lines.append("  Reserved By: (not reserved)")
 
     return "\n".join(lines)
 
