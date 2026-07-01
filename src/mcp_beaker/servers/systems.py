@@ -1,4 +1,4 @@
-"""System-related Beaker tools (5 read + 6 write)."""
+"""System-related Beaker tools (6 read + 6 write)."""
 
 from __future__ import annotations
 
@@ -10,13 +10,19 @@ from fastmcp import Context
 from pydantic import Field
 
 from mcp_beaker.exceptions import BeakerError, BeakerNotFoundError
-from mcp_beaker.models.system import SystemHistoryEntry, SystemInfo, SystemListItem
+from mcp_beaker.models.system import (
+    SystemHistoryEntry,
+    SystemInfo,
+    SystemListItem,
+    SystemStatusInfo,
+)
 from mcp_beaker.servers import beaker_client, mcp
 from mcp_beaker.utils.formatting import (
     format_system_arches,
     format_system_details,
     format_system_history,
     format_system_list,
+    format_system_status,
 )
 
 logger = logging.getLogger("mcp-beaker")
@@ -291,6 +297,34 @@ async def get_system_details(
     except Exception as exc:
         logger.error("Failed to fetch system details for %s: %s", fqdn, exc)
         return _error(f"Failed to fetch details for system '{fqdn}': {exc}")
+
+
+@mcp.tool(
+    tags={"beaker", "read", "systems"},
+    annotations={"title": "Get System Status", "readOnlyHint": True},
+)
+async def get_system_status(
+    ctx: Context,
+    fqdn: Annotated[str, Field(description="Fully qualified domain name of the system.")],
+) -> str:
+    """Get the current status of a Beaker system: who has it loaned and who is using it.
+
+    Returns the system condition (Automated/Manual/Broken/Removed),
+    current loan details (recipient and comment), and current
+    reservation details (user and recipe).
+    """
+    client = beaker_client(ctx)
+    try:
+        data = await client.systems_status(fqdn)
+        status = SystemStatusInfo.model_validate(data)
+        return format_system_status(status, fqdn)
+    except BeakerNotFoundError:
+        return _error(f"System '{fqdn}' not found.")
+    except BeakerError as exc:
+        return _error(str(exc))
+    except Exception as exc:
+        logger.error("Failed to fetch status for %s: %s", fqdn, exc)
+        return _error(f"Failed to fetch status for system '{fqdn}': {exc}")
 
 
 @mcp.tool(
