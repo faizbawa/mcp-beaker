@@ -19,6 +19,29 @@ class SystemOwner(BaseModel):
     email_address: str = ""
 
 
+class SystemLoanInfo(BaseModel):
+    """Current loan details for a Beaker system."""
+
+    recipient: str | None = None
+    recipient_user: SystemOwner | None = None
+    comment: str | None = None
+
+
+class SystemReservationInfo(BaseModel):
+    """Current reservation (manual or recipe) for a Beaker system."""
+
+    user: SystemOwner | None = None
+    recipe_id: int | None = None
+
+
+class SystemStatusInfo(BaseModel):
+    """Response from GET /systems/<fqdn>/status."""
+
+    condition: str = ""
+    current_loan: SystemLoanInfo | None = None
+    current_reservation: SystemReservationInfo | None = None
+
+
 class SystemInfo(BaseModel):
     """Detailed information about a single Beaker system."""
 
@@ -27,6 +50,8 @@ class SystemInfo(BaseModel):
     system_type: str = Field("", alias="type")
     owner: SystemOwner | None = None
     user: SystemOwner | None = None
+    current_loan: SystemLoanInfo | None = None
+    current_reservation: SystemReservationInfo | None = None
     lender: str | None = ""
     location: str | None = ""
     vendor: str | None = ""
