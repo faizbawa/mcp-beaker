@@ -192,6 +192,36 @@ class TestSearchSystems:
         assert params["systemsearch-0.operation"] == "greater than"
         assert params["systemsearch-0.value"] == "131072"
 
+    async def test_search_by_owner(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=SEARCH_FEED))
+        result = await search_systems(ctx, owner="tasharma", status="")
+        assert "2 system(s)" in result
+        call_kwargs = mock_client.rest_get.call_args
+        params = call_kwargs.kwargs.get("params", {})
+        assert params["systemsearch-0.table"] == "System/Owner"
+        assert params["systemsearch-0.operation"] == "is"
+        assert params["systemsearch-0.value"] == "tasharma"
+
+    async def test_search_by_loaned_to(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=SEARCH_FEED))
+        result = await search_systems(ctx, loaned_to="tasharma", status="")
+        assert "2 system(s)" in result
+        call_kwargs = mock_client.rest_get.call_args
+        params = call_kwargs.kwargs.get("params", {})
+        assert params["systemsearch-0.table"] == "System/LoanedTo"
+        assert params["systemsearch-0.operation"] == "is"
+        assert params["systemsearch-0.value"] == "tasharma"
+
+    async def test_search_by_user(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=SEARCH_FEED))
+        result = await search_systems(ctx, user="smitterl", status="")
+        assert "2 system(s)" in result
+        call_kwargs = mock_client.rest_get.call_args
+        params = call_kwargs.kwargs.get("params", {})
+        assert params["systemsearch-0.table"] == "System/User"
+        assert params["systemsearch-0.operation"] == "is"
+        assert params["systemsearch-0.value"] == "smitterl"
+
 
 # ---- get_system_details ----------------------------------------------------
 
