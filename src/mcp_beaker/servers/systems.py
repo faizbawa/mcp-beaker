@@ -60,6 +60,7 @@ SEARCH_TABLE_MAP: dict[str, str] = {
     "owner": "System/Owner",
     "user": "System/User",
     "lender": "System/Lender",
+    "loaned_to": "System/LoanedTo",
 }
 
 COMPARISON_OPS = {">=": "greater than", "<=": "less than", ">": "greater than", "<": "less than"}
@@ -80,7 +81,7 @@ def _build_search_params(
         for op_str, op_name in COMPARISON_OPS.items():
             if str_value.startswith(op_str):
                 operation = op_name
-                str_value = str_value[len(op_str):]
+                str_value = str_value[len(op_str) :]
                 break
         if operation == "is" and "%" in str_value:
             operation = "like"
@@ -177,8 +178,7 @@ async def search_systems(
     cpu_family: Annotated[
         int,
         Field(
-            description="CPU family number. "
-            "Intel=6, AMD Zen3/4=25, AMD Zen1/2=23, AMD Zen5=26.",
+            description="CPU family number. Intel=6, AMD Zen3/4=25, AMD Zen1/2=23, AMD Zen5=26.",
         ),
     ] = 0,
     cpu_model: Annotated[
@@ -211,19 +211,40 @@ async def search_systems(
         str,
         Field(description="Beaker pool name, e.g. 'rhelvirt-gating'."),
     ] = "",
+    owner: Annotated[
+        str,
+        Field(description="Owner username to filter by, e.g. 'tasharma'. Exact match."),
+    ] = "",
+    user: Annotated[
+        str,
+        Field(
+            description="Current user (reserved by) username to filter by. "
+            "Shows systems currently reserved by this user."
+        ),
+    ] = "",
+    loaned_to: Annotated[
+        str,
+        Field(
+            description="Username the system is loaned to. "
+            "Shows systems currently loaned to this user."
+        ),
+    ] = "",
     status: Annotated[
         str,
-        Field(description="System status: 'Automated', 'Manual', 'Broken'. Default: 'Automated'."),
+        Field(
+            description="System status: 'Automated', 'Manual', 'Broken', or '' for any. "
+            "Default: 'Automated'."
+        ),
     ] = "Automated",
     limit: Annotated[
         int,
         Field(description="Maximum number of systems to return. Default: 10."),
     ] = 10,
 ) -> str:
-    """Search Beaker systems by hardware attributes.
+    """Search Beaker systems by hardware attributes and ownership.
 
-    Find systems matching CPU, architecture, memory, pool, and other
-    hardware criteria. All filters are combined with AND logic.
+    Find systems matching CPU, architecture, memory, pool, owner,
+    and other criteria. All filters are combined with AND logic.
     """
     client = beaker_client(ctx)
     filters: dict[str, str | int | float] = {}
@@ -243,6 +264,12 @@ async def search_systems(
         filters["memory"] = memory
     if pool:
         filters["pool"] = pool
+    if owner:
+        filters["owner"] = owner
+    if user:
+        filters["user"] = user
+    if loaned_to:
+        filters["loaned_to"] = loaned_to
     if status:
         filters["status"] = status
 
@@ -350,8 +377,10 @@ async def get_system_history(
         entries_raw = await client.systems_history(fqdn, since_arg)
         entries = [
             SystemHistoryEntry.model_validate(
-                {k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v
-                 for k, v in e.items()}
+                {
+                    k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v
+                    for k, v in e.items()
+                }
             )
             for e in entries_raw
         ]
