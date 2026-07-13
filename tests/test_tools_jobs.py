@@ -319,6 +319,42 @@ class TestExtendWatchdog:
         result = await extend_watchdog(ctx, task_id=1, seconds=100)
         assert "Error" in result
 
+    async def test_no_task_or_job(self, ctx):
+        result = await extend_watchdog(ctx, seconds=3600)
+        assert "Error" in result
+        assert "task_id" in result or "job_id" in result
+
+    async def test_via_job_id(self, ctx, mock_client):
+        mock_client.rest_get_json = AsyncMock(return_value={
+            "id": "12345", "status": "Running", "result": "New",
+            "is_finished": False,
+            "recipesets": [{"id": "1", "status": "Running", "result": "New", "recipes": [
+                {"id": "1", "status": "Running", "result": "New", "tasks": [
+                    {"id": "88888", "name": "/distribution/reservesys",
+                     "status": "Running", "result": "New"},
+                ], "logs": []},
+            ]}],
+        })
+        result = await extend_watchdog(ctx, seconds=7200, job_id="J:12345")
+        assert "extended" in result.lower()
+        assert "88888" in result
+        mock_client.recipes_tasks_extend.assert_awaited_with(88888, 7200)
+
+    async def test_via_job_id_no_running_task(self, ctx, mock_client):
+        mock_client.rest_get_json = AsyncMock(return_value={
+            "id": "12345", "status": "Completed", "result": "Pass",
+            "is_finished": True,
+            "recipesets": [{"id": "1", "status": "Completed", "result": "Pass", "recipes": [
+                {"id": "1", "status": "Completed", "result": "Pass", "tasks": [
+                    {"id": "88888", "name": "/distribution/check-install",
+                     "status": "Completed", "result": "Pass"},
+                ], "logs": []},
+            ]}],
+        })
+        result = await extend_watchdog(ctx, seconds=3600, job_id="J:12345")
+        assert "Error" in result
+        assert "No running" in result
+
 
 # ---------------------------------------------------------------------------
 # set_job_response

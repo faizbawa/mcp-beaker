@@ -458,26 +458,72 @@ async def watch_job(
 )
 async def extend_watchdog(
     ctx: Context,
-    task_id: Annotated[int, Field(description="Numeric task ID to extend the watchdog for.")],
-    seconds: Annotated[int, Field(description="Number of seconds to extend the watchdog by.")],
+    seconds: Annotated[int, Field(description="Number of seconds to extend by.")],
+    task_id: Annotated[
+        int,
+        Field(description="Numeric task ID (e.g. 12345). Provide this OR job_id."),
+    ] = 0,
+    job_id: Annotated[
+        str,
+        Field(
+            description="Job ID (e.g. 'J:12345' or '12345'). "
+            "If provided, the tool finds the running task automatically."
+        ),
+    ] = "",
 ) -> str:
     """Extend the watchdog timer for a running Beaker task.
 
-    Prevents a long-running reservation from being reclaimed by Beaker's
-    watchdog. The task must be currently running.
+    Use this to extend a Beaker reservation and prevent the system
+    from being reclaimed. Beaker's watchdog automatically aborts
+    recipes that exceed their timeout — this tool pushes that
+    deadline forward.
+
+    Provide either a task_id directly, or a job_id and the tool will
+    find the currently running task for you.
     """
     if seconds <= 0:
         return _error("seconds must be a positive integer.")
+    if not task_id and not job_id:
+        return _error(
+            "Provide either task_id (numeric, e.g. 12345) or "
+            "job_id (e.g. 'J:12345'). Use get_job_status to find your job ID."
+        )
+
     client = beaker_client(ctx)
+    resolved_task_id = task_id
+
+    if not resolved_task_id and job_id:
+        numeric_id, err = parse_job_id(job_id)
+        if err:
+            return err
+        try:
+            data = await client.rest_get_json(f"/jobs/{numeric_id}")
+            job = JobInfo.model_validate(data)
+            found = _find_running_task(job)
+            if found is None:
+                return _error(
+                    f"No running/reserved task found in job J:{numeric_id}. "
+                    "The job may have already finished."
+                )
+            resolved_task_id = int(found)
+        except BeakerNotFoundError:
+            return _error(f"Job J:{numeric_id} not found.")
+        except Exception as exc:
+            return _error(f"Failed to look up job J:{numeric_id}: {exc}")
+
     try:
-        await client.recipes_tasks_extend(task_id, seconds)
+        await client.recipes_tasks_extend(resolved_task_id, seconds)
         hours = seconds / 3600
-        return f"Watchdog extended for task T:{task_id} by {seconds} seconds ({hours:.1f} hours)."
+        source = f" (from job J:{job_id})" if job_id else ""
+        return (
+            f"Watchdog extended for task T:{resolved_task_id}{source} "
+            f"by {seconds} seconds ({hours:.1f} hours)."
+        )
     except BeakerError as exc:
         return _error(str(exc))
     except Exception as exc:
-        logger.error("Failed to extend watchdog for T:%s: %s", task_id, exc)
-        return _error(f"Failed to extend watchdog for T:{task_id}: {exc}")
+        logger.error("Failed to extend watchdog for T:%s: %s", resolved_task_id, exc)
+        return _error(f"Failed to extend watchdog for T:{resolved_task_id}: {exc}")
 
 
 @mcp.tool(
@@ -519,6 +565,21 @@ async def set_job_response(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+_ACTIVE_STATUSES = {"Running", "Reserved", "Waiting", "Installing", "Scheduled"}
+
+
+def _find_running_task(job: JobInfo) -> str | None:
+    """Return the first active task ID from a job, or None."""
+    for rs in job.recipesets:
+        for recipe in rs.recipes:
+            if recipe.status in _ACTIVE_STATUSES:
+                for task in recipe.tasks:
+                    if task.status in _ACTIVE_STATUSES:
+                        return task.id
+                if recipe.tasks:
+                    return recipe.tasks[-1].id
+    return None
 
 
 async def _submit_via_bkr(client: Any, job_xml: str) -> str:
