@@ -152,8 +152,19 @@ class BeakerClient:
             f"HTTP@{host}",
             name_type=gssapi.NameType.hostbased_service,
         )
-        ctx = gssapi.SecurityContext(name=service_name, usage="initiate")
-        token = base64.b64encode(ctx.step()).decode("ascii")
+        try:
+            ctx = gssapi.SecurityContext(name=service_name, usage="initiate")
+            token = base64.b64encode(ctx.step()).decode("ascii")
+        except gssapi.raw.misc.GSSError as exc:
+            exc_str = str(exc).lower()
+            if "expired" in exc_str or "no credentials" in exc_str:
+                raise BeakerAuthenticationError(
+                    "Kerberos ticket expired or missing. "
+                    "Run: kinit -c FILE:/tmp/krb5cc_beaker your-user@YOUR.REALM"
+                ) from exc
+            raise BeakerAuthenticationError(
+                f"Kerberos/GSSAPI error during SPNEGO negotiation: {exc}"
+            ) from exc
 
         verify = self._get_verify()
         response = httpx.get(
