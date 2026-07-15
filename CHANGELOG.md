@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1] - 2026-07-15
+
+### Fixed
+- `kinit` password prompt leaking to stdout, breaking MCP stdio transport (Cursor, Claude Desktop)
+- Suppress both stdout and stderr from `kinit` in entrypoint (`>/dev/null 2>&1`)
+- Add `udp_preference_limit = 0` to container `krb5.conf` to force TCP for Kerberos, preventing silent failures in networks that drop UDP KDC packets
+
+### Added
+- Mounted ticket cache auth method -- mount a host `kinit -c FILE:...` ccache into the container, no password in config needed
+- Entrypoint checks `klist -s` before attempting `kinit`, skipping it when a valid ticket is already present
+- README documentation for the mounted ticket cache workflow
+
 ## [0.5.0] - 2026-06-29
 
 ### Added

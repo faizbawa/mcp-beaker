@@ -83,6 +83,45 @@ The container runs `kinit` internally -- no volume mounts, no host
 dependencies. Use `--network=host` so the container can reach your
 Kerberos KDC and Beaker server (especially over VPN).
 
+#### Container with mounted ticket cache (no password in config)
+
+Instead of storing your Kerberos password in `mcp.json`, you can mount
+a pre-existing ticket cache from the host:
+
+**Step 1 -- Create a file-based ticket on the host:**
+
+```bash
+kinit -c FILE:/tmp/krb5cc_beaker your-user@YOUR.REALM
+```
+
+Re-run this whenever the ticket expires (typically every 10 hours).
+
+**Step 2 -- Mount the ticket into the container:**
+
+```json
+{
+  "mcpServers": {
+    "beaker": {
+      "command": "podman",
+      "args": [
+        "run", "--rm", "-i", "--network=host",
+        "-v", "/tmp/krb5cc_beaker:/tmp/krb5cc_0:ro,Z",
+        "-e", "BEAKER_URL=https://beaker.example.com",
+        "ghcr.io/faizbawa/mcp-beaker:latest"
+      ]
+    }
+  }
+}
+```
+
+The container detects the valid ticket and skips `kinit` entirely.
+No `KRB5_PRINCIPAL` or `KRB5_PASSWORD` needed. The `:ro,Z` mount flags
+ensure read-only access with proper SELinux labeling.
+
+> **Note:** The host typically uses KCM (D-Bus) for credential storage,
+> which containers cannot access. That's why you need `kinit -c FILE:...`
+> to create a file-based cache that can be bind-mounted.
+
 **SSL certificates:** Many Beaker servers use internal CA certificates that
 are not in the container's default trust store. You have three options:
 
