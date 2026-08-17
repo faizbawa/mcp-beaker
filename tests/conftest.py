@@ -81,6 +81,7 @@ def mock_client(beaker_config: BeakerConfig) -> BeakerClient:
     client.systems_loan_grant = AsyncMock(return_value=None)
     client.systems_loan_return = AsyncMock(return_value=None)
     client.recipes_tasks_extend = AsyncMock(return_value=None)
+    client._ensure_rest_auth = AsyncMock(return_value=None)
 
     _json_response = {
         "id": 100, "status": "Completed", "result": "Pass",

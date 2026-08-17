@@ -9,8 +9,8 @@ import httpx
 
 from mcp_beaker.exceptions import BeakerError, BeakerNotFoundError
 from mcp_beaker.servers.systems import (
-    _build_search_params,
-    _parse_atom_feed,
+    _build_advancedsearch_params,
+    _parse_json_systems,
     get_system_arches,
     get_system_details,
     get_system_history,
@@ -25,35 +25,34 @@ from mcp_beaker.servers.systems import (
     search_systems,
 )
 
-ATOM_FEED = """\
-<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <title>Systems</title>
-  <entry>
-    <title>host1.example.com</title>
-    <link type="text/html" href="https://beaker.test/view/host1.example.com"/>
-  </entry>
-  <entry>
-    <title>host2.example.com</title>
-    <link type="text/html" href="https://beaker.test/view/host2.example.com"/>
-  </entry>
-</feed>"""
+import json
+
+SYSTEMS_JSON = json.dumps({
+    "items": [
+        {"fqdn": "host1.example.com", "arches": ["x86_64"], "status": "Automated",
+         "type": "Machine", "vendor": None, "model": None, "loaned_to": None, "reserved_for": None},
+        {"fqdn": "host2.example.com", "arches": ["aarch64"], "status": "Automated",
+         "type": "Machine", "vendor": None, "model": None, "loaned_to": None, "reserved_for": None},
+    ],
+    "pagination": {"page": 1, "page_size": 20, "total_count": 2, "total_pages": 1,
+                    "has_next": False, "has_prev": False},
+})
 
 
-# ---- parse_atom_feed helper ------------------------------------------------
+# ---- _parse_json_systems helper --------------------------------------------
 
 
-class TestParseAtomFeed:
+class TestParseJsonSystems:
     def test_parses_entries(self):
-        systems = _parse_atom_feed(ATOM_FEED)
+        data = json.loads(SYSTEMS_JSON)
+        systems = _parse_json_systems(data)
         assert len(systems) == 2
         assert systems[0].fqdn == "host1.example.com"
         assert systems[1].fqdn == "host2.example.com"
-        assert "host1.example.com" in systems[0].url
 
-    def test_empty_feed(self):
-        xml = '<feed xmlns="http://www.w3.org/2005/Atom"><title>Empty</title></feed>'
-        systems = _parse_atom_feed(xml)
+    def test_empty_result(self):
+        data = {"items": [], "pagination": {"total_count": 0}}
+        systems = _parse_json_systems(data)
         assert systems == []
 
 
@@ -62,7 +61,9 @@ class TestParseAtomFeed:
 
 class TestListSystems:
     async def test_success(self, ctx, mock_client):
-        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=ATOM_FEED))
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text=SYSTEMS_JSON,
+                                       headers={"content-type": "application/json"}))
         result = await list_systems(ctx)
         assert "host1.example.com" in result
         assert "host2.example.com" in result
@@ -72,10 +73,25 @@ class TestListSystems:
         assert "Error" in result
         assert "Invalid filter_type" in result
 
-    async def test_bad_xml(self, ctx, mock_client):
-        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text="not xml"))
-        result = await list_systems(ctx)
-        assert "Error" in result
+    async def test_preset_free(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text=SYSTEMS_JSON,
+                                       headers={"content-type": "application/json"}))
+        result = await list_systems(ctx, filter_type="free")
+        assert "host1.example.com" in result
+        call_kwargs = mock_client.rest_get.call_args
+        params = call_kwargs.kwargs.get("params", [])
+        assert ("preset", "free") in params
+
+    async def test_preset_all_no_preset_param(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text=SYSTEMS_JSON,
+                                       headers={"content-type": "application/json"}))
+        result = await list_systems(ctx, filter_type="all")
+        assert "host1.example.com" in result
+        call_kwargs = mock_client.rest_get.call_args
+        params = call_kwargs.kwargs.get("params", [])
+        assert all(k != "preset" for k, _ in params)
 
     async def test_connection_error(self, ctx, mock_client):
         mock_client.rest_get = AsyncMock(side_effect=BeakerError("conn err"))
@@ -83,62 +99,66 @@ class TestListSystems:
         assert "Error" in result
 
 
-# ---- _build_search_params helper -------------------------------------------
+# ---- _build_advancedsearch_params helper -----------------------------------
 
 
-class TestBuildSearchParams:
+class TestBuildAdvancedSearchParams:
     def test_single_filter(self):
-        params = _build_search_params({"cpu_vendor": "GenuineIntel"})
-        assert params["systemsearch-0.table"] == "CPU/Vendor"
-        assert params["systemsearch-0.operation"] == "is"
-        assert params["systemsearch-0.value"] == "GenuineIntel"
+        params = _build_advancedsearch_params({"cpu_vendor": "GenuineIntel"})
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "CPU/Vendor,is,GenuineIntel" in adv
 
     def test_multiple_filters(self):
-        params = _build_search_params({
+        params = _build_advancedsearch_params({
             "cpu_vendor": "GenuineIntel",
             "cpu_family": 6,
             "cpu_model": 143,
         })
-        assert params["systemsearch-0.table"] == "CPU/Vendor"
-        assert params["systemsearch-1.table"] == "CPU/Family"
-        assert params["systemsearch-2.table"] == "CPU/Model"
-        assert params["systemsearch-2.value"] == "143"
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "CPU/Vendor,is,GenuineIntel" in adv
+        assert "CPU/Family,is,6" in adv
+        assert "CPU/Model,is,143" in adv
 
     def test_comparison_operators(self):
-        params = _build_search_params({"cpu_cores": ">=64"})
-        assert params["systemsearch-0.operation"] == "greater than"
-        assert params["systemsearch-0.value"] == "64"
+        params = _build_advancedsearch_params({"cpu_cores": ">=64"})
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "CPU/Cores,greater than,64" in adv
 
-        params = _build_search_params({"memory": "<=131072"})
-        assert params["systemsearch-0.operation"] == "less than"
-        assert params["systemsearch-0.value"] == "131072"
+        params = _build_advancedsearch_params({"memory": "<=131072"})
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "System/Memory,less than,131072" in adv
 
     def test_unknown_key_ignored(self):
-        params = _build_search_params({"nonexistent_field": "value"})
-        assert len(params) == 0
+        params = _build_advancedsearch_params({"nonexistent_field": "value"})
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert len(adv) == 0
+
+    def test_page_size_included(self):
+        params = _build_advancedsearch_params({"arch": "aarch64"}, limit=25)
+        sizes = [v for k, v in params if k == "page_size"]
+        assert "25" in sizes
 
 
 # ---- search_systems --------------------------------------------------------
 
 
-SEARCH_FEED = """\
-<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <title>Systems</title>
-  <entry>
-    <title>spr-host1.example.com</title>
-    <link type="text/html" href="https://beaker.test/view/spr-host1.example.com"/>
-  </entry>
-  <entry>
-    <title>spr-host2.example.com</title>
-    <link type="text/html" href="https://beaker.test/view/spr-host2.example.com"/>
-  </entry>
-</feed>"""
+SEARCH_JSON = json.dumps({
+    "items": [
+        {"fqdn": "spr-host1.example.com", "arches": ["x86_64"], "status": "Automated",
+         "type": "Machine", "vendor": "Dell", "model": "R660", "loaned_to": None, "reserved_for": None},
+        {"fqdn": "spr-host2.example.com", "arches": ["x86_64"], "status": "Automated",
+         "type": "Machine", "vendor": "Dell", "model": "R660", "loaned_to": None, "reserved_for": None},
+    ],
+    "pagination": {"page": 1, "page_size": 10, "total_count": 2, "total_pages": 1,
+                    "has_next": False, "has_prev": False},
+})
 
 
 class TestSearchSystems:
     async def test_search_by_cpu(self, ctx, mock_client):
-        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=SEARCH_FEED))
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text=SEARCH_JSON,
+                                       headers={"content-type": "application/json"}))
         result = await search_systems(
             ctx,
             cpu_vendor="GenuineIntel",
@@ -149,21 +169,22 @@ class TestSearchSystems:
         assert "spr-host2.example.com" in result
         assert "2 system(s)" in result
         call_kwargs = mock_client.rest_get.call_args
-        params = call_kwargs.kwargs.get("params", {})
-        assert params["systemsearch-0.table"] == "CPU/Vendor"
-        assert params["systemsearch-0.value"] == "GenuineIntel"
+        params = call_kwargs.kwargs.get("params", [])
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "CPU/Vendor,is,GenuineIntel" in adv
 
     async def test_search_with_pool_and_arch(self, ctx, mock_client):
-        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=SEARCH_FEED))
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text=SEARCH_JSON,
+                                       headers={"content-type": "application/json"}))
         result = await search_systems(ctx, arch="aarch64", pool="kernel-arm-pool")
         assert "2 system(s)" in result
 
     async def test_search_no_results(self, ctx, mock_client):
-        empty_feed = (
-            '<?xml version="1.0" encoding="utf-8"?>'
-            '<feed xmlns="http://www.w3.org/2005/Atom"><title>Systems</title></feed>'
-        )
-        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=empty_feed))
+        empty_json = json.dumps({"items": [], "pagination": {"total_count": 0}})
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text=empty_json,
+                                       headers={"content-type": "application/json"}))
         result = await search_systems(ctx, cpu_vendor="NonExistent")
         assert "No systems found" in result
 
@@ -177,50 +198,56 @@ class TestSearchSystems:
         result = await search_systems(ctx, cpu_vendor="GenuineIntel")
         assert "Error" in result
 
-    async def test_search_bad_xml(self, ctx, mock_client):
-        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text="not xml"))
+    async def test_search_bad_json(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text="not json",
+                                       headers={"content-type": "text/plain"}))
         result = await search_systems(ctx, cpu_vendor="GenuineIntel")
         assert "Error" in result
 
     async def test_search_memory_range(self, ctx, mock_client):
-        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=SEARCH_FEED))
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text=SEARCH_JSON,
+                                       headers={"content-type": "application/json"}))
         result = await search_systems(ctx, memory=">=131072")
         assert "2 system(s)" in result
         call_kwargs = mock_client.rest_get.call_args
-        params = call_kwargs.kwargs.get("params", {})
-        assert params["systemsearch-0.table"] == "Memory/MiB"
-        assert params["systemsearch-0.operation"] == "greater than"
-        assert params["systemsearch-0.value"] == "131072"
+        params = call_kwargs.kwargs.get("params", [])
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "System/Memory,greater than,131072" in adv
 
     async def test_search_by_owner(self, ctx, mock_client):
-        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=SEARCH_FEED))
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text=SEARCH_JSON,
+                                       headers={"content-type": "application/json"}))
         result = await search_systems(ctx, owner="tasharma", status="")
         assert "2 system(s)" in result
         call_kwargs = mock_client.rest_get.call_args
-        params = call_kwargs.kwargs.get("params", {})
-        assert params["systemsearch-0.table"] == "System/Owner"
-        assert params["systemsearch-0.operation"] == "is"
-        assert params["systemsearch-0.value"] == "tasharma"
+        params = call_kwargs.kwargs.get("params", [])
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "System/Owner,is,tasharma" in adv
 
     async def test_search_by_loaned_to(self, ctx, mock_client):
-        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=SEARCH_FEED))
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text=SEARCH_JSON,
+                                       headers={"content-type": "application/json"}))
         result = await search_systems(ctx, loaned_to="tasharma", status="")
         assert "2 system(s)" in result
         call_kwargs = mock_client.rest_get.call_args
-        params = call_kwargs.kwargs.get("params", {})
-        assert params["systemsearch-0.table"] == "System/LoanedTo"
-        assert params["systemsearch-0.operation"] == "is"
-        assert params["systemsearch-0.value"] == "tasharma"
+        params = call_kwargs.kwargs.get("params", [])
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "System/LoanedTo,is,tasharma" in adv
 
     async def test_search_by_user(self, ctx, mock_client):
-        mock_client.rest_get = AsyncMock(return_value=httpx.Response(200, text=SEARCH_FEED))
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text=SEARCH_JSON,
+                                       headers={"content-type": "application/json"}))
         result = await search_systems(ctx, user="smitterl", status="")
         assert "2 system(s)" in result
         call_kwargs = mock_client.rest_get.call_args
-        params = call_kwargs.kwargs.get("params", {})
-        assert params["systemsearch-0.table"] == "System/User"
-        assert params["systemsearch-0.operation"] == "is"
-        assert params["systemsearch-0.value"] == "smitterl"
+        params = call_kwargs.kwargs.get("params", [])
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "System/User,is,smitterl" in adv
 
 
 # ---- get_system_details ----------------------------------------------------

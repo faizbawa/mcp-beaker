@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import xml.etree.ElementTree as ET
 from typing import Annotated
 
 from fastmcp import Context
@@ -27,12 +26,7 @@ from mcp_beaker.utils.formatting import (
 
 logger = logging.getLogger("mcp-beaker")
 
-ATOM_NS = "http://www.w3.org/2005/Atom"
-FILTER_ENDPOINTS: dict[str, str] = {
-    "all": "/",
-    "available": "/available/",
-    "free": "/free/",
-}
+VALID_PRESETS = {"all", "available", "free"}
 
 SEARCH_TABLE_MAP: dict[str, str] = {
     "cpu_vendor": "CPU/Vendor",
@@ -44,9 +38,9 @@ SEARCH_TABLE_MAP: dict[str, str] = {
     "cpu_processors": "CPU/Processors",
     "cpu_speed": "CPU/Speed",
     "cpu_hyper": "CPU/Hyper",
-    "cpu_flags": "CPU/Flag",
-    "arch": "Arch/Arch",
-    "memory": "Memory/MiB",
+    "cpu_flags": "CPU/Flags",
+    "arch": "System/Arch",
+    "memory": "System/Memory",
     "status": "System/Status",
     "type": "System/Type",
     "vendor": "System/Vendor",
@@ -55,7 +49,6 @@ SEARCH_TABLE_MAP: dict[str, str] = {
     "pool": "System/Pools",
     "numa_nodes": "System/NumaNodes",
     "disk_space": "Disk/Size",
-    "disk_count": "Disk/Count",
     "hypervisor": "System/Hypervisor",
     "owner": "System/Owner",
     "user": "System/User",
@@ -66,12 +59,16 @@ SEARCH_TABLE_MAP: dict[str, str] = {
 COMPARISON_OPS = {">=": "greater than", "<=": "less than", ">": "greater than", "<": "less than"}
 
 
-def _build_search_params(
+def _build_advancedsearch_params(
     filters: dict[str, str | int | float],
-) -> dict[str, str]:
-    """Convert filter dict to Beaker systemsearch query parameters."""
-    params: dict[str, str] = {}
-    idx = 0
+    limit: int = 20,
+) -> list[tuple[str, str]]:
+    """Convert filter dict to Beaker REST advancedsearch query tuples.
+
+    The new Beaker Py3 REST API at ``/systems`` accepts repeated
+    ``advancedsearch=table,operation,value`` query parameters for AND logic.
+    """
+    params: list[tuple[str, str]] = []
     for key, value in filters.items():
         table = SEARCH_TABLE_MAP.get(key)
         if table is None:
@@ -81,15 +78,13 @@ def _build_search_params(
         for op_str, op_name in COMPARISON_OPS.items():
             if str_value.startswith(op_str):
                 operation = op_name
-                str_value = str_value[len(op_str) :]
+                str_value = str_value[len(op_str):]
                 break
         if operation == "is" and "%" in str_value:
-            operation = "like"
-        prefix = f"systemsearch-{idx}"
-        params[f"{prefix}.table"] = table
-        params[f"{prefix}.operation"] = operation
-        params[f"{prefix}.value"] = str_value
-        idx += 1
+            operation = "contains"
+            str_value = str_value.replace("%", "")
+        params.append(("advancedsearch", f"{table},{operation},{str_value}"))
+    params.append(("page_size", str(limit)))
     return params
 
 
@@ -97,20 +92,12 @@ def _error(msg: str) -> str:
     return f"Error: {msg}"
 
 
-def _parse_atom_feed(xml_text: str) -> list[SystemListItem]:
-    root = ET.fromstring(xml_text)
+def _parse_json_systems(data: dict) -> list[SystemListItem]:
+    """Parse the JSON response from ``GET /systems`` into SystemListItem list."""
     systems: list[SystemListItem] = []
-    for entry in root.findall(f"{{{ATOM_NS}}}entry"):
-        title_el = entry.find(f"{{{ATOM_NS}}}title")
-        fqdn = title_el.text if title_el is not None and title_el.text else "Unknown"
-        system_url = ""
-        for link in entry.findall(f"{{{ATOM_NS}}}link"):
-            href = link.get("href", "")
-            link_type = link.get("type", "")
-            if "html" in link_type or not link_type:
-                system_url = href
-                break
-        systems.append(SystemListItem(fqdn=fqdn, url=system_url))
+    for entry in data.get("items", []):
+        fqdn = entry.get("fqdn", "Unknown")
+        systems.append(SystemListItem(fqdn=fqdn, url=""))
     return systems
 
 
@@ -141,21 +128,25 @@ async def list_systems(
     or 'all' for the complete inventory.
     """
     client = beaker_client(ctx)
-    if filter_type not in FILTER_ENDPOINTS:
+    if filter_type not in VALID_PRESETS:
         return _error(
             f"Invalid filter_type '{filter_type}'. "
-            f"Must be one of: {', '.join(FILTER_ENDPOINTS.keys())}."
+            f"Must be one of: {', '.join(VALID_PRESETS)}."
         )
-    url_path = FILTER_ENDPOINTS[filter_type]
-    params = {"tg_format": "atom", "list_tgp_limit": str(limit)}
+    params: list[tuple[str, str]] = [("page_size", str(limit or 10000))]
+    if filter_type != "all":
+        params.append(("preset", filter_type))
+        await client._ensure_rest_auth()
     try:
-        response = await client.rest_get(url_path, params=params)
-        systems = _parse_atom_feed(response.text)
+        response = await client.rest_get(
+            "/systems", params=params,
+            headers={"Accept": "application/json"},
+        )
+        data = response.json()
+        systems = _parse_json_systems(data)
         return format_system_list(systems, filter_type)
     except BeakerError as exc:
         return _error(str(exc))
-    except ET.ParseError:
-        return _error("Failed to parse Atom feed from the server.")
     except Exception as exc:
         logger.error("Failed to list systems: %s", exc)
         return _error(f"Failed to list systems: {exc}")
@@ -276,13 +267,15 @@ async def search_systems(
     if not filters:
         return _error("At least one search filter is required.")
 
-    search_params = _build_search_params(filters)
-    search_params["tg_format"] = "atom"
-    search_params["list_tgp_limit"] = str(limit)
+    search_params = _build_advancedsearch_params(filters, limit=limit)
 
     try:
-        response = await client.rest_get("/", params=search_params)
-        systems = _parse_atom_feed(response.text)
+        response = await client.rest_get(
+            "/systems", params=search_params,
+            headers={"Accept": "application/json"},
+        )
+        data = response.json()
+        systems = _parse_json_systems(data)
         if not systems:
             filter_desc = ", ".join(f"{k}={v}" for k, v in filters.items())
             return f"No systems found matching: {filter_desc}"
@@ -292,8 +285,6 @@ async def search_systems(
         return "\n".join(lines)
     except BeakerError as exc:
         return _error(str(exc))
-    except ET.ParseError:
-        return _error("Failed to parse search results from the server.")
     except Exception as exc:
         logger.error("Failed to search systems: %s", exc)
         return _error(f"Failed to search systems: {exc}")

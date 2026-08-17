@@ -281,7 +281,7 @@ class BeakerClient:
         path: str,
         *,
         headers: dict[str, str] | None = None,
-        params: dict[str, str] | None = None,
+        params: dict[str, str] | list[tuple[str, str]] | None = None,
         timeout: float = 30.0,
     ) -> httpx.Response:
         """Make an authenticated GET request to the Beaker REST API."""
