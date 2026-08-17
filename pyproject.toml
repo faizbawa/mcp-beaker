@@ -1,6 +1,6 @@
 [project]
 name = "mcp-beaker"
-version = "0.6.2"
+version = "0.6.3"
 description = "MCP server for Beaker lab automation — system provisioning, job management, distro discovery, and failure diagnosis"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -85,7 +85,6 @@ fixable = ["ALL"]
 "src/mcp_beaker/client.py" = ["S603", "S607"]
 "src/mcp_beaker/utils/xml_validation.py" = ["S314"]
 "src/mcp_beaker/utils/diagnosis.py" = ["S314"]
-"src/mcp_beaker/servers/systems.py" = ["S314"]
 "src/mcp_beaker/servers/__init__.py" = ["E402"]
 
 [tool.ruff.format]
