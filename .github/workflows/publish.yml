@@ -8,8 +8,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
       - run: uv sync --dev
       - run: uv run pytest tests/ -v
       - run: uv run ruff check src/
@@ -20,8 +20,8 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
       - name: Set version from release tag
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
