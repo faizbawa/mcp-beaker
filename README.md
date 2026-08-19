@@ -13,6 +13,7 @@ Works with any Beaker server instance. Built on [FastMCP v3](https://gofastmcp.c
 ## Features
 
 - **27 tools** covering the full Beaker lifecycle: systems, jobs, distros, tasks
+- **Hostname filter**: list or search systems by FQDN substring (e.g. `ampere-mtsnow`), combined with availability presets (`free`/`available`/`all`)
 - **Beaker Py3 compatible**: works with both legacy and modernized Beaker REST APIs
 - **Flexible auth**: Kerberos (native GSSAPI/SPNEGO or `bkr` CLI fallback) and password (XML-RPC)
 - **Job XML validation**: auto-fills missing fields, infers distro families
