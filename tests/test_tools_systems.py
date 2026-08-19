@@ -93,6 +93,28 @@ class TestListSystems:
         params = call_kwargs.kwargs.get("params", [])
         assert all(k != "preset" for k, _ in params)
 
+    async def test_hostname_filter(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text=SYSTEMS_JSON,
+                                       headers={"content-type": "application/json"}))
+        result = await list_systems(ctx, filter_type="free", hostname="ampere-mtsnow%")
+        assert "host1.example.com" in result
+        call_kwargs = mock_client.rest_get.call_args
+        params = call_kwargs.kwargs.get("params", [])
+        assert ("preset", "free") in params
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "System/Name,contains,ampere-mtsnow" in adv
+
+    async def test_hostname_without_wildcard(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text=SYSTEMS_JSON,
+                                       headers={"content-type": "application/json"}))
+        await list_systems(ctx, hostname="nvidia-grace-hopper")
+        call_kwargs = mock_client.rest_get.call_args
+        params = call_kwargs.kwargs.get("params", [])
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "System/Name,contains,nvidia-grace-hopper" in adv
+
     async def test_connection_error(self, ctx, mock_client):
         mock_client.rest_get = AsyncMock(side_effect=BeakerError("conn err"))
         result = await list_systems(ctx)
@@ -137,6 +159,15 @@ class TestBuildAdvancedSearchParams:
         params = _build_advancedsearch_params({"arch": "aarch64"}, limit=25)
         sizes = [v for k, v in params if k == "page_size"]
         assert "25" in sizes
+
+    def test_hostname_always_contains(self):
+        params = _build_advancedsearch_params({"hostname": "ampere-mtsnow"})
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "System/Name,contains,ampere-mtsnow" in adv
+
+        params = _build_advancedsearch_params({"hostname": "%ampere-one-x%"})
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "System/Name,contains,ampere-one-x" in adv
 
 
 # ---- search_systems --------------------------------------------------------
@@ -248,6 +279,17 @@ class TestSearchSystems:
         params = call_kwargs.kwargs.get("params", [])
         adv = [v for k, v in params if k == "advancedsearch"]
         assert "System/User,is,smitterl" in adv
+
+    async def test_search_by_hostname(self, ctx, mock_client):
+        mock_client.rest_get = AsyncMock(
+            return_value=httpx.Response(200, text=SEARCH_JSON,
+                                       headers={"content-type": "application/json"}))
+        result = await search_systems(ctx, hostname="spr-host", status="")
+        assert "2 system(s)" in result
+        call_kwargs = mock_client.rest_get.call_args
+        params = call_kwargs.kwargs.get("params", [])
+        adv = [v for k, v in params if k == "advancedsearch"]
+        assert "System/Name,contains,spr-host" in adv
 
 
 # ---- get_system_details ----------------------------------------------------

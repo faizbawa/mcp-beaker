@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- `hostname` filter on `list_systems` and `search_systems` — substring match on system FQDN (`System/Name`). Combines with availability presets (`free`/`available`/`all`) on `list_systems`. Wildcards (`%`) are optional; match is always `contains`.
+
 ## [0.6.1] - 2026-07-15
 
 ### Fixed

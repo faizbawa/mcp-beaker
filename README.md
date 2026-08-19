@@ -224,8 +224,8 @@ Options:
 
 | Tool | Description |
 |------|-------------|
-| `list_systems` | List systems by availability (all/available/free) |
-| `search_systems` | Search systems by CPU, architecture, memory, pool, and other hardware attributes |
+| `list_systems` | List systems by availability (all/available/free) and optional hostname substring |
+| `search_systems` | Search systems by hostname, CPU, architecture, memory, pool, and other hardware attributes |
 | `get_system_details` | Hardware specs, CPU info, pool membership, ownership, status for a system |
 | `get_system_status` | Current condition, reservation, and loan status for a system |
 | `get_system_history` | Activity history for a system |

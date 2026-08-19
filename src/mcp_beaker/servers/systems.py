@@ -29,6 +29,7 @@ logger = logging.getLogger("mcp-beaker")
 VALID_PRESETS = {"all", "available", "free"}
 
 SEARCH_TABLE_MAP: dict[str, str] = {
+    "hostname": "System/Name",
     "cpu_vendor": "CPU/Vendor",
     "cpu_model_name": "CPU/ModelName",
     "cpu_family": "CPU/Family",
@@ -80,7 +81,9 @@ def _build_advancedsearch_params(
                 operation = op_name
                 str_value = str_value[len(op_str):]
                 break
-        if operation == "is" and "%" in str_value:
+        # Hostname is always substring match: Beaker's simple search uses
+        # contains on System/Name, and callers pass prefixes like ampere-mtsnow.
+        if operation == "is" and ("%" in str_value or key == "hostname"):
             operation = "contains"
             str_value = str_value.replace("%", "")
         params.append(("advancedsearch", f"{table},{operation},{str_value}"))
@@ -116,6 +119,13 @@ async def list_systems(
         str,
         Field(description="System filter: 'all', 'available', or 'free'. Default: 'available'."),
     ] = "available",
+    hostname: Annotated[
+        str,
+        Field(
+            description="Hostname/FQDN substring to match, e.g. 'ampere-mtsnow' or "
+            "'nvidia-grace-hopper%'. Always a contains match. Empty means any host."
+        ),
+    ] = "",
     limit: Annotated[
         int,
         Field(description="Maximum number of systems to return. Use 0 for all. Default: 20."),
@@ -123,9 +133,9 @@ async def list_systems(
 ) -> str:
     """List Beaker systems matching the filter criteria.
 
-    Returns a list of system FQDNs filtered by availability status.
-    Use 'available' for systems you can reserve, 'free' for idle ones,
-    or 'all' for the complete inventory.
+    Returns a list of system FQDNs filtered by availability status and
+    optional hostname substring. Use 'available' for systems you can
+    reserve, 'free' for idle ones, or 'all' for the complete inventory.
     """
     client = beaker_client(ctx)
     if filter_type not in VALID_PRESETS:
@@ -133,10 +143,14 @@ async def list_systems(
             f"Invalid filter_type '{filter_type}'. "
             f"Must be one of: {', '.join(VALID_PRESETS)}."
         )
-    params: list[tuple[str, str]] = [("page_size", str(limit or 10000))]
+    page_size = str(limit or 10000)
+    params: list[tuple[str, str]] = [("page_size", page_size)]
     if filter_type != "all":
         params.append(("preset", filter_type))
         await client._ensure_rest_auth()
+    if hostname:
+        host_params = _build_advancedsearch_params({"hostname": hostname}, limit=int(page_size))
+        params.extend(p for p in host_params if p[0] != "page_size")
     try:
         response = await client.rest_get(
             "/systems", params=params,
@@ -158,6 +172,13 @@ async def list_systems(
 )
 async def search_systems(
     ctx: Context,
+    hostname: Annotated[
+        str,
+        Field(
+            description="Hostname/FQDN substring to match, e.g. 'ampere-mtsnow' or "
+            "'nvidia-grace-hopper%'. Always a contains match."
+        ),
+    ] = "",
     cpu_vendor: Annotated[
         str,
         Field(description="CPU vendor string, e.g. 'GenuineIntel', 'AuthenticAMD', 'Ampere(R)'."),
@@ -234,11 +255,13 @@ async def search_systems(
 ) -> str:
     """Search Beaker systems by hardware attributes and ownership.
 
-    Find systems matching CPU, architecture, memory, pool, owner,
-    and other criteria. All filters are combined with AND logic.
+    Find systems matching hostname, CPU, architecture, memory, pool,
+    owner, and other criteria. All filters are combined with AND logic.
     """
     client = beaker_client(ctx)
     filters: dict[str, str | int | float] = {}
+    if hostname:
+        filters["hostname"] = hostname
     if cpu_vendor:
         filters["cpu_vendor"] = cpu_vendor
     if cpu_model_name:
